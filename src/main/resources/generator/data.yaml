@@ -1,0 +1,89 @@
+schema_version: 2
+
+# Payment-shaped schemas for the mainframe-payments-demo. The generator emits
+# Customer → Account → Transaction trees rooted at Customer. Product is NOT a
+# generated schema; products are populated separately from products.yaml into
+# the Product cache (the GG cache schema lives in deployDataModel input).
+#
+# Cohort buckets shape realistic skew:
+#   - 90% of customers have 1 account, 10% have 2–3 accounts.
+#   - 10% of accounts produce 50% of transactions (heavy-tail purchasers).
+schemas:
+  - name: customer
+    update_ratio: 0.05
+    columns:
+      - name: id
+        null_rate: 0.0
+        key: true
+        affinity: true
+        value_source: { kind: sequence, start: 1, step: 1 }
+      - name: first_name
+        null_rate: 0.0
+        value_source: { kind: datafaker, expression: "#{name.firstName}" }
+
+  - name: account
+    update_ratio: 0.20
+    columns:
+      - name: id
+        null_rate: 0.0
+        key: true
+        value_source: { kind: sequence, start: 1, step: 1 }
+      - name: customer_id
+        # Cohort distribution: 90% of customers get exactly 1 account; 10% get
+        # 2–3 accounts. The customer_id stays the affinity key so a customer's
+        # accounts colocate.
+        null_rate: 0.0
+        affinity: true
+        value_source:
+          kind: parent-fk-ref
+          parent_schema: customer
+          parent_column: id
+          cohort_buckets:
+            - { share: 0.90, multiplier: 1 }
+            - { share: 0.10, multiplier: 3 }
+      - name: balance
+        # Random initial balance between $100 and $50,000 (cents-as-integer).
+        null_rate: 0.0
+        value_source: { kind: datafaker, expression: "#{number.numberBetween '10000','5000000'}" }
+
+  - name: transaction
+    update_ratio: 0.0
+    columns:
+      - name: id
+        null_rate: 0.0
+        key: true
+        value_source: { kind: sequence, start: 1, step: 1 }
+      - name: account_id
+        # Heavy-tail skew: 10% of accounts get 50× more transactions than the
+        # other 90%. account_id is the affinity key so an account's history
+        # colocates with the account row and with its customer.
+        null_rate: 0.0
+        affinity: true
+        value_source:
+          kind: parent-fk-ref
+          parent_schema: account
+          parent_column: id
+          cohort_buckets:
+            - { share: 0.10, multiplier: 50 }
+            - { share: 0.90, multiplier: 1 }
+      - name: product_id
+        # Nullable for "payment" type transactions (15% of total). Non-payment
+        # transactions pick a product id from the products.yaml fixture's
+        # `ids:` list (the demo setup populates the Product cache with the
+        # matching catalog entries separately).
+        null_rate: 0.15
+        value_source:
+          kind: yaml-data
+          path: src/main/resources/generator/products.yaml
+          key: ids
+      - name: amount
+        # In cents. 5 ≤ amount ≤ 150000 ($0.05 to $1,500.00).
+        null_rate: 0.0
+        value_source: { kind: datafaker, expression: "#{number.numberBetween '5','150000'}" }
+      - name: type
+        null_rate: 0.0
+        value_source:
+          kind: weighted-choice
+          choices:
+            - { value: PURCHASE, weight: 0.85 }
+            - { value: PAYMENT,  weight: 0.15 }

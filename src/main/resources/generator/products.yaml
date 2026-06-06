@@ -1,0 +1,123 @@
+# Tech-toy product catalog for the mainframe-payments-demo.
+#
+# Two top-level keys:
+#  - `ids`: flat list of product IDs the data-generator samples for the
+#    transaction.product_id column (yaml-data value source, key=ids).
+#  - `catalog`: full product records consumed by the demo's setup step to
+#    pre-populate the Product cache + the matching mainframe-proxy/MariaDB
+#    tables. Not used by the data-generator.
+#
+# Prices are in cents.
+
+ids: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+      31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+      41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+      51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+      61, 62, 63, 64, 65, 66, 67, 68, 69, 70,
+      71, 72, 73, 74, 75, 76, 77, 78, 79, 80,
+      81, 82, 83, 84, 85, 86, 87, 88, 89, 90,
+      91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
+
+catalog:
+  - { id: 1,   name: "NVIDIA GeForce RTX 5080 Graphics Card",     price: 134999 }
+  - { id: 2,   name: "Meta Quest 3S VR Headset",                  price: 43550 }
+  - { id: 3,   name: "Apple MacBook Pro 16\" M4 Max",             price: 379900 }
+  - { id: 4,   name: "Sony WH-1000XM6 Wireless Headphones",       price: 39999 }
+  - { id: 5,   name: "Steam Deck OLED 1TB",                       price: 64900 }
+  - { id: 6,   name: "Logitech MX Master 4 Mouse",                price: 11999 }
+  - { id: 7,   name: "Keychron Q1 Pro Mechanical Keyboard",       price: 19999 }
+  - { id: 8,   name: "Samsung Galaxy S25 Ultra",                  price: 129999 }
+  - { id: 9,   name: "Google Pixel 10 Pro",                       price: 99999 }
+  - { id: 10,  name: "iPhone 17 Pro Max",                         price: 119900 }
+  - { id: 11,  name: "DJI Mini 4 Pro Drone",                      price: 75900 }
+  - { id: 12,  name: "GoPro Hero 13 Black",                       price: 39999 }
+  - { id: 13,  name: "Insta360 X4 360 Camera",                    price: 49999 }
+  - { id: 14,  name: "Sony A7 IV Mirrorless Camera",              price: 249900 }
+  - { id: 15,  name: "Sigma 24-70mm f/2.8 DG DN Art Lens",        price: 109900 }
+  - { id: 16,  name: "Bose QuietComfort Ultra Earbuds",           price: 27900 }
+  - { id: 17,  name: "Apple AirPods Pro 3",                       price: 24900 }
+  - { id: 18,  name: "JBL Charge 6 Speaker",                      price: 19999 }
+  - { id: 19,  name: "Sonos Era 300",                             price: 44900 }
+  - { id: 20,  name: "Roku Ultra 4K Streaming Player",            price: 9999 }
+  - { id: 21,  name: "Apple TV 4K (Gen 4)",                       price: 14900 }
+  - { id: 22,  name: "Nintendo Switch 2",                         price: 39999 }
+  - { id: 23,  name: "Sony PlayStation 5 Pro",                    price: 69999 }
+  - { id: 24,  name: "Microsoft Xbox Series X 2TB",               price: 64999 }
+  - { id: 25,  name: "Razer BlackShark V3 Pro Headset",           price: 19999 }
+  - { id: 26,  name: "SteelSeries Arctis Nova Pro Wireless",      price: 34999 }
+  - { id: 27,  name: "Elgato Stream Deck XL",                     price: 24999 }
+  - { id: 28,  name: "Shure SM7dB Microphone",                    price: 49900 }
+  - { id: 29,  name: "Rode PodMic USB Microphone",                price: 19900 }
+  - { id: 30,  name: "Blackmagic Pocket Cinema Camera 6K G2",     price: 249500 }
+  - { id: 31,  name: "Synology DS1825+ NAS",                      price: 169900 }
+  - { id: 32,  name: "Samsung 990 Pro 4TB NVMe SSD",              price: 39999 }
+  - { id: 33,  name: "WD Black SN850X 2TB NVMe SSD",              price: 21999 }
+  - { id: 34,  name: "Seagate IronWolf Pro 22TB HDD",             price: 56999 }
+  - { id: 35,  name: "AMD Ryzen 9 9950X3D Processor",             price: 69999 }
+  - { id: 36,  name: "Intel Core Ultra 9 285K Processor",         price: 58999 }
+  - { id: 37,  name: "Corsair Vengeance 64GB DDR5-6400",          price: 24999 }
+  - { id: 38,  name: "G.Skill Trident Z5 RGB 32GB DDR5",          price: 13999 }
+  - { id: 39,  name: "ASUS ROG Strix X870E-E Motherboard",        price: 47999 }
+  - { id: 40,  name: "MSI MPG B850 Tomahawk WiFi",                price: 22999 }
+  - { id: 41,  name: "Noctua NH-D15 G2 CPU Cooler",               price: 14999 }
+  - { id: 42,  name: "Corsair iCUE H170i Elite LCD",              price: 29999 }
+  - { id: 43,  name: "Lian Li O11 Dynamic EVO XL Case",           price: 22999 }
+  - { id: 44,  name: "Fractal North XL Case",                     price: 17999 }
+  - { id: 45,  name: "Seasonic Prime PX-1300 PSU",                price: 33999 }
+  - { id: 46,  name: "Corsair AX1600i Digital PSU",               price: 49999 }
+  - { id: 47,  name: "Dell UltraSharp U4025QW 40\" Monitor",      price: 219900 }
+  - { id: 48,  name: "LG UltraFine 32\" 6K Monitor",              price: 199900 }
+  - { id: 49,  name: "ASUS ROG Swift PG32UCDM OLED Monitor",      price: 139900 }
+  - { id: 50,  name: "Samsung Odyssey OLED G9",                   price: 169900 }
+  - { id: 51,  name: "Apple Studio Display 5K",                   price: 159900 }
+  - { id: 52,  name: "Eizo ColorEdge CG2700X 27\" Monitor",       price: 339900 }
+  - { id: 53,  name: "BenQ ScreenBar Plus Lamp",                  price: 12999 }
+  - { id: 54,  name: "Herman Miller Embody Chair",                price: 184500 }
+  - { id: 55,  name: "Steelcase Gesture Chair",                   price: 153500 }
+  - { id: 56,  name: "Uplift V2 Standing Desk",                   price: 89900 }
+  - { id: 57,  name: "Fully Jarvis Bamboo Desk",                  price: 79900 }
+  - { id: 58,  name: "Apple Magic Trackpad",                      price: 12900 }
+  - { id: 59,  name: "Wacom Cintiq Pro 27 Display",               price: 349900 }
+  - { id: 60,  name: "Wacom Intuos Pro Medium",                   price: 37999 }
+  - { id: 61,  name: "iPad Pro 13\" M5",                          price: 129900 }
+  - { id: 62,  name: "Microsoft Surface Pro 11",                  price: 119900 }
+  - { id: 63,  name: "Lenovo ThinkPad X1 Carbon Gen 13",          price: 169900 }
+  - { id: 64,  name: "Dell XPS 15 (2025)",                        price: 199900 }
+  - { id: 65,  name: "Framework Laptop 16",                       price: 209900 }
+  - { id: 66,  name: "Razer Blade 18 (2025)",                     price: 349900 }
+  - { id: 67,  name: "ASUS ROG Zephyrus G16 OLED",                price: 259900 }
+  - { id: 68,  name: "LG Gram 17 Pro",                            price: 169900 }
+  - { id: 69,  name: "Samsung Galaxy Tab S11 Ultra",              price: 119900 }
+  - { id: 70,  name: "OnePlus Pad 3",                             price: 59900 }
+  - { id: 71,  name: "Garmin Fenix 8 Sapphire",                   price: 109900 }
+  - { id: 72,  name: "Apple Watch Ultra 3",                       price: 79900 }
+  - { id: 73,  name: "Whoop 5.0 Strap",                           price: 23900 }
+  - { id: 74,  name: "Oura Ring Gen 4",                           price: 39900 }
+  - { id: 75,  name: "DJI Osmo Pocket 3",                         price: 51900 }
+  - { id: 76,  name: "Rode Wireless GO III",                      price: 27900 }
+  - { id: 77,  name: "Elgato Wave XLR",                           price: 17999 }
+  - { id: 78,  name: "Razer Kiyo Pro Webcam",                     price: 19999 }
+  - { id: 79,  name: "Insta360 Link 2C Webcam",                   price: 19999 }
+  - { id: 80,  name: "Logitech MX Vertical Mouse",                price: 9999 }
+  - { id: 81,  name: "Glorious Model O 2 Pro Mouse",              price: 16999 }
+  - { id: 82,  name: "Drop CTRL High-Profile Keyboard",           price: 22000 }
+  - { id: 83,  name: "Wooting 80HE Magnetic Keyboard",            price: 27500 }
+  - { id: 84,  name: "Mountain Everest 60",                       price: 13999 }
+  - { id: 85,  name: "Endgame Gear KB65HE",                       price: 14999 }
+  - { id: 86,  name: "Anker GaNPrime 240W Charger",               price: 11999 }
+  - { id: 87,  name: "UGREEN Nexode 300W Charging Station",       price: 19999 }
+  - { id: 88,  name: "Belkin BoostCharge 7-in-1 Hub",             price: 8999 }
+  - { id: 89,  name: "OWC Thunderbolt 5 Dock",                    price: 39900 }
+  - { id: 90,  name: "Caldigit TS5 Plus Dock",                    price: 49900 }
+  - { id: 91,  name: "Synology BeeStation Plus 8TB",              price: 49999 }
+  - { id: 92,  name: "Ubiquiti UniFi Dream Machine Pro Max",      price: 59900 }
+  - { id: 93,  name: "Eero Pro 7 Mesh 3-Pack",                    price: 69900 }
+  - { id: 94,  name: "TP-Link Deco BE85 Mesh 3-Pack",             price: 119900 }
+  - { id: 95,  name: "Philips Hue Bridge + 4 White & Color Bulbs", price: 24999 }
+  - { id: 96,  name: "Govee Lyra Floor Lamp",                     price: 19999 }
+  - { id: 97,  name: "Nanoleaf 4D Screen Mirror + Lightstrip",    price: 14999 }
+  - { id: 98,  name: "Ember Tumbler² 16 oz",                      price: 19995 }
+  - { id: 99,  name: "Keurig K-Café SMART",                       price: 24999 }
+  - { id: 100, name: "Breville Oracle Touch Espresso",            price: 279900 }

@@ -1,0 +1,19 @@
+schema_version: 3
+
+targets:
+  - name: mainframe-payments-gg8
+    kind: gg8-kv
+    cluster_name: mainframe-payments-gg8
+
+scenarios:
+  # The phase-5 load scenario. The UI's stepped slider re-runs this scenario
+  # with different `ops_per_second` values (off/slow/medium/fast) via the
+  # demo-ui backend's GeneratorControlService (per CLAUDE.md §10).
+  - name: mainframe-payments-load
+    target: mainframe-payments-gg8
+    root_schemas: [customer]
+    rate: { kind: constant, ops_per_second: 20 }
+    duration: { kind: time, value: "10m" }
+    transaction_scope: business_event
+    provisioning: skip   # GG cache schema is provisioned via the plugin's deployDataModel
+    read_ratio: 0.20
