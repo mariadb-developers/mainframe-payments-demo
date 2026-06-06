@@ -1,203 +1,70 @@
+schema_version: 13
+
 demo:
-  name: template
-  description: GridGain Demo Toolkit template
+  name: mainframe-payments
+  description: |
+    Mainframe Payments Demo — incremental migration of high-throughput payment workloads
+    off a mainframe onto a modern stack: Postgres mainframe-proxy → GG8 write-through →
+    MariaDB analytics, with one-way CDC (Debezium + Kafka) feeding GG from the proxy.
   stage: development
-  gridgain9_license_file: cluster/gridgain-license.json
   gridgain8_license_file: cluster/gridgain8-license.xml
+  gridgain9_license_file: cluster/gridgain-license.json
   controlcenter_license_file: controlcenter/controlcenter-license.xml
   log_ready_checks: false
-  ownership_tag: david.brown
+  ownership_tag: mainframe-payments-demo
   output_directory: build/gridgain/output
   runtime_directory: build/gridgain/.runtime
   working_directory: .
   demo_access:
     enabled: true
     max_exposed_nodes: 3
-clusters:
-  example-gcp-8a:
-    disabled: false
-    template: gke-standard-v8
-    infrastructure: staging-gcp
-    data_models: []
-    base_data: []
-    monitoring:
-      cc-gcp:
-        connector_template: ignite-agent
-      pg-gcp:
-        connector_template: gke-otel-collector
-    dcr_data_center_id: 3
-monitors:
-  cc-gcp:
-    type: control-center
-    infrastructure: staging-gcp
-    admin_email: david.brown@gridgain.com
-    admin_password: monitor
-    num_nodes: 1
-    min_nodes: 1
-    max_nodes: 3
-    k8s_namespace: gg-control-center
-    k8s_node_pool_template: cc-gke-pool
-    backend:
-      image: gridgain/control-center-backend:latest
-      replicas: 1
-      exporter_target_port: 9090
-      exporter_target_port_tls: 9443
-      storage_port: 5432
-      jvm_opts: ""
-      resources:
-        cpu_request: 500m
-        memory_request: 1Gi
-        cpu_limit: 2000m
-        memory_limit: 2Gi
-    frontend:
-      image: gridgain/control-center-frontend:latest
-      replicas: 1
-      ui_port: 8008
-      ui_port_tls: 8443
-      resources:
-        cpu_request: 100m
-        memory_request: 256Mi
-        cpu_limit: 500m
-        memory_limit: 512Mi
-    storage:
-      retain_on_destroy: false
-      disk_type: pd-standard
-      storage_size: 10Gi
-    timeouts:
-      statefulset: 300
-      deployment: 300
-      login_url: 300
-      load_balancer: 300
-  cc-aws:
-    disabled: false
-    type: control-center
-    infrastructure: staging-aws
-    admin_email: david.brown@gridgain.com
-    admin_password: monitor
-    num_nodes: 1
-    min_nodes: 1
-    max_nodes: 3
-    k8s_namespace: gg-control-center
-    k8s_node_pool_template: cc-eks-pool
-    backend:
-      image: gridgain/control-center-backend:latest
-      replicas: 1
-      exporter_target_port: 9090
-      exporter_target_port_tls: 9443
-      storage_port: 5432
-      jvm_opts: ""
-      resources:
-        cpu_request: 500m
-        memory_request: 1Gi
-        cpu_limit: 2000m
-        memory_limit: 2Gi
-    frontend:
-      image: gridgain/control-center-frontend:latest
-      replicas: 1
-      ui_port: 8008
-      ui_port_tls: 8443
-      resources:
-        cpu_request: 100m
-        memory_request: 256Mi
-        cpu_limit: 500m
-        memory_limit: 512Mi
-    storage:
-      retain_on_destroy: false
-      disk_type: gp3
-      storage_size: 10Gi
-    timeouts:
-      statefulset: 300
-      deployment: 300
-      login_url: 300
-      load_balancer: 300
-  pg-gcp:
-    type: prometheus-grafana
-    infrastructure: staging-gcp
-    num_nodes: 1
-    min_nodes: 1
-    max_nodes: 3
-    k8s_namespace: gg-prometheus-grafana
-    k8s_node_pool_template: cc-gke-pool
-    prometheus:
-      image: prom/prometheus:v3.4.1
-      replicas: 1
-      scrape_port: 9090
-      resources:
-        cpu_request: 500m
-        memory_request: 1Gi
-        cpu_limit: 2000m
-        memory_limit: 4Gi
-    grafana:
-      image: grafana/grafana:11.6.0
-      replicas: 1
-      ui_port: 3000
-      resources:
-        cpu_request: 100m
-        memory_request: 256Mi
-        cpu_limit: 500m
-        memory_limit: 512Mi
-    include_overview_dashboard: true
-    dashboards: []
-    storage:
-      retain_on_destroy: false
-      disk_type: pd-standard
-      prometheus_storage_size: 20Gi
-    timeouts:
-      statefulset: 300
-      deployment: 300
-      load_balancer: 300
-infrastructures:
-  staging-gcp:
-    disabled: false
-    template: staging-gke
-    account: gcp-dev
-    region: us-west1
-    zones:
-    - a
-    - b
-    - c
-    zone_spread: MULTI
-  staging-aws:
-    disabled: false
-    template: staging-eks
-    account: aws-dev
-    region: us-west-2
-    zones:
-    - a
-    zone_spread: SINGLE
+
+# ──────────────────────────────────────────────────────────────────────
+# Infrastructure
+# ──────────────────────────────────────────────────────────────────────
 infrastructure_accounts:
   gcp-dev:
     disabled: false
     provider: gcp
-    gke_account: david.brown@gridgain.com
-    gke_project: david-brown-personal
-  aws-dev:
-    disabled: false
-    provider: aws
-    aws_profile: cli-dev
-    aws_account: 930793918939
+    # TODO before first deploy: replace with the GCP account / project you own.
+    gke_account: YOUR_GCP_ACCOUNT@example.com
+    gke_project: YOUR_GCP_PROJECT
+
 infrastructure_templates:
-  staging-gke:
+  mainframe-payments-gke:
     disabled: false
     platform: gke
     k8s_default_pool_template: default-gke-pool
     k8s_requested_default_nodes: 1
     k8s_min_default_nodes: 1
     k8s_max_default_nodes: 3
-  staging-eks:
+
+infrastructures:
+  mainframe-payments-gke:
     disabled: false
-    platform: eks
-    eks_kubernetes_version: 1.32
-    k8s_default_pool_template: default-eks-pool
-    k8s_requested_default_nodes: 1
-    k8s_min_default_nodes: 1
-    k8s_max_default_nodes: 3
+    template: mainframe-payments-gke
+    account: gcp-dev
+    region: us-west1
+    zones:
+      - a
+    zone_spread: SINGLE
+
 node_pool_templates:
   default-gke-pool:
     platform: gke
     gke_machine_type: e2-standard-4
     gke_disk_type: pd-standard
     gke_disk_size: 20GB
+    gke_local_ssd_count: 0
+    gke_enable_autorepair: true
+    gke_enable_autoupgrade: false
+    gke_enable_ip_alias: true
+  gg-cluster-gke-pool:
+    # GridGain cluster nodes — sized for the demo's working set + persistence.
+    platform: gke
+    gke_machine_type: e2-standard-4
+    gke_disk_type: pd-standard
+    gke_disk_size: 30GB
     gke_local_ssd_count: 0
     gke_enable_autorepair: true
     gke_enable_autoupgrade: false
@@ -211,16 +78,9 @@ node_pool_templates:
     gke_enable_autorepair: true
     gke_enable_autoupgrade: false
     gke_enable_ip_alias: true
-  cluster-gke-pool:
-    platform: gke
-    gke_machine_type: n2-highmem-8
-    gke_disk_type: pd-standard
-    gke_disk_size: 20GB
-    gke_local_ssd_count: 1
-    gke_enable_autorepair: true
-    gke_enable_autoupgrade: false
-    gke_enable_ip_alias: true
-  cluster-gke-pool-v8:
+  db-gke-pool:
+    # Shared by Postgres mainframe-proxy and MariaDB analytics — co-locating both
+    # databases on the same pool is fine for a 5–10 min demo.
     platform: gke
     gke_machine_type: e2-standard-4
     gke_disk_type: pd-standard
@@ -229,145 +89,22 @@ node_pool_templates:
     gke_enable_autorepair: true
     gke_enable_autoupgrade: false
     gke_enable_ip_alias: true
-  default-eks-pool:
-    platform: eks
-    eks_instance_type: m5.xlarge
-    eks_volume_type: gp3
-    eks_volume_size: 20GB
-    eks_ami_type: AmazonLinux2023
-    eks_capacity_type: ON_DEMAND
-    eks_local_nvme_count: 0
-    eks_enable_autoupgrade: false
-    eks_endpoint_public_access: true
-  cc-eks-pool:
-    platform: eks
-    eks_instance_type: r5.2xlarge
-    eks_volume_type: gp3
-    eks_volume_size: 20GB
-    eks_ami_type: AmazonLinux2023
-    eks_capacity_type: ON_DEMAND
-    eks_local_nvme_count: 0
-    eks_enable_autoupgrade: false
-    eks_endpoint_public_access: true
-  cluster-eks-pool:
-    platform: eks
-    eks_instance_type: r5.2xlarge
-    eks_volume_type: gp3
-    eks_volume_size: 20GB
-    eks_ami_type: AmazonLinux2023
-    eks_capacity_type: ON_DEMAND
-    eks_local_nvme_count: 0
-    eks_enable_autoupgrade: false
-    eks_endpoint_public_access: true
+  cdc-gke-pool:
+    # Kafka + Kafka Connect for the CDC pipeline.
+    platform: gke
+    gke_machine_type: e2-standard-4
+    gke_disk_type: pd-standard
+    gke_disk_size: 30GB
+    gke_local_ssd_count: 0
+    gke_enable_autorepair: true
+    gke_enable_autoupgrade: false
+    gke_enable_ip_alias: true
+
+# ──────────────────────────────────────────────────────────────────────
+# Cluster (single GG8 cluster — GG9 variant deferred per CLAUDE.md §15)
+# ──────────────────────────────────────────────────────────────────────
 cluster_templates:
-  gke-standard-v9:
-    disabled: false
-    platform: gke
-    nodes: 2
-    replicas: 1
-    management_port: 10300
-    client_port: 10800
-    discovery_port: 3344
-    multicast:
-      group: 239.192.0.0
-      port: 47401
-      result_wait_time: 500
-      ttl: -1
-    metastorage_node_limit: 3
-    resources:
-      limits:
-        cpu: 3000m
-        memory: 10Gi
-      requests:
-        cpu: 2000m
-        memory: 8Gi
-      data_storage:
-        size: 10Gi
-    telemetry:
-      service_port: 3200
-      sources:
-      - client.handler
-      - clock.service
-      - expiration
-      - index.builder
-      - jvm
-      - license
-      - log.storage
-      - messaging
-      - metastorage
-      - os
-      - placement-driver
-      - raft
-      - raft.snapshots
-      - resource.vacuum
-      - sql.client
-      - sql.memory
-      - sql.offloading
-      - sql.plan.cache
-      - sql.queries
-      - storage.aipersist
-      - storage.aipersist.checkpoint
-      - thread.pools.*
-      - topology.*
-      - transactions
-      - upgrade.rolling
-    k8s_node_pool_template: cluster-gke-pool
-    k8s_storage:
-      retain_on_cluster_destroy: false
-      disk_type: pd-ssd
-      volume_binding_mode: WaitForFirstConsumer
-    pvc_retention_policy:
-      enabled: false
-      when_scaled: Retain
-      when_deleted: Retain
-    extra_env_vars: []
-    extra_volume_mounts: []
-    extra_volumes: []
-    job_resources:
-      limits:
-        cpu: 500m
-        memory: 512Mi
-      requests:
-        cpu: 250m
-        memory: 256Mi
-    statefulset_policy:
-      pod_management_policy: Parallel
-      update_strategy_type: RollingUpdate
-      update_strategy_partition: 0
-      revision_history_limit: 10
-      work_dir: /gg9-work
-    snapshot_profiles: {}
-    pod_lifecycle:
-      termination_grace_period_seconds: 180
-      liveness_probe:
-        enabled: true
-        path: /management/v1/node/state
-        port: 10300
-        initial_delay_seconds: 60
-        period_seconds: 20
-        timeout_seconds: 5
-        success_threshold: 1
-        failure_threshold: 3
-      readiness_probe:
-        enabled: true
-        path: /management/v1/node/state
-        port: 10300
-        initial_delay_seconds: 30
-        period_seconds: 10
-        timeout_seconds: 5
-        success_threshold: 1
-        failure_threshold: 3
-      startup_probe:
-        enabled: false
-        path: /management/v1/node/state
-        port: 10300
-        initial_delay_seconds: 10
-        period_seconds: 10
-        timeout_seconds: 5
-        success_threshold: 1
-        failure_threshold: 30
-    image: gridgain9
-  gke-standard-v8:
+  mainframe-payments-gg8:
     disabled: false
     platform: gke
     nodes: 2
@@ -395,10 +132,10 @@ cluster_templates:
     telemetry:
       service_port: 3200
       sources:
-      - jvm
-      - os
+        - jvm
+        - os
     image: gridgain8
-    k8s_node_pool_template: cluster-gke-pool-v8
+    k8s_node_pool_template: gg-cluster-gke-pool
     k8s_storage:
       retain_on_cluster_destroy: false
       disk_type: pd-ssd
@@ -454,234 +191,226 @@ cluster_templates:
         timeout_seconds: 1
         success_threshold: 1
         failure_threshold: 30
-  eks-standard-v9:
-    platform: eks
-    nodes: 1
-    replicas: 1
-    management_port: 10300
-    client_port: 10800
-    discovery_port: 3344
-    multicast:
-      group: 239.192.0.0
-      port: 47401
-      result_wait_time: 500
-      ttl: -1
-    metastorage_node_limit: 3
-    resources:
-      limits:
-        cpu: 3000m
-        memory: 10Gi
-      requests:
-        cpu: 2000m
-        memory: 8Gi
-      data_storage:
-        size: 10Gi
-    telemetry:
-      service_port: 3200
-      sources:
-      - raft
-    k8s_node_pool_template: cluster-eks-pool
-    k8s_storage:
-      retain_on_cluster_destroy: false
-      disk_type: gp3
-    pvc_retention_policy:
-      enabled: false
-      when_scaled: Retain
-      when_deleted: Retain
-    extra_env_vars: []
-    extra_volume_mounts: []
-    extra_volumes: []
-    job_resources:
-      limits:
-        cpu: 500m
-        memory: 512Mi
-      requests:
-        cpu: 250m
-        memory: 256Mi
-    statefulset_policy:
-      pod_management_policy: Parallel
-      update_strategy_type: RollingUpdate
-      update_strategy_partition: 0
-      revision_history_limit: 10
-      work_dir: /gg9-work
-    snapshot_profiles: {}
-    pod_lifecycle:
-      termination_grace_period_seconds: 180
-      liveness_probe:
-        enabled: true
-        path: /management/v1/node/state
-        port: 10300
-        initial_delay_seconds: 60
-        period_seconds: 20
-        timeout_seconds: 5
-        success_threshold: 1
-        failure_threshold: 3
-      readiness_probe:
-        enabled: true
-        path: /management/v1/node/state
-        port: 10300
-        initial_delay_seconds: 30
-        period_seconds: 10
-        timeout_seconds: 5
-        success_threshold: 1
-        failure_threshold: 3
-      startup_probe:
-        enabled: false
-        path: /management/v1/node/state
-        port: 10300
-        initial_delay_seconds: 10
-        period_seconds: 10
-        timeout_seconds: 5
-        success_threshold: 1
-        failure_threshold: 30
-    image: gridgain9
-  eks-standard-v8:
+
+clusters:
+  mainframe-payments-gg8:
     disabled: false
-    platform: eks
-    nodes: 2
-    replicas: 1
-    management_port: 8080
-    client_port: 10800
-    discovery_port: 47500
-    multicast:
-      group: 228.1.2.4
-      port: 47400
-      result_wait_time: 2000
-      ttl: 5
-    metastorage_node_limit: 3
-    resources:
-      limits:
-        cpu: 3000m
-        memory: 10Gi
-      requests:
-        cpu: 2000m
-        memory: 8Gi
-      data_storage:
-        size: 10Gi
+    template: mainframe-payments-gg8
+    infrastructure: mainframe-payments-gke
     data_models: []
     base_data: []
-    telemetry:
-      service_port: 3200
-      sources:
-      - jvm
-      - os
-    k8s_node_pool_template: cluster-eks-pool
-    k8s_storage:
-      retain_on_cluster_destroy: false
-      disk_type: gp3
-      volume_binding_mode: WaitForFirstConsumer
-    pvc_retention_policy:
-      enabled: false
-      when_scaled: Retain
-      when_deleted: Retain
-    extra_env_vars: []
-    extra_volume_mounts: []
-    extra_volumes: []
-    job_resources:
-      limits:
-        cpu: 500m
-        memory: 512Mi
-      requests:
-        cpu: 250m
-        memory: 256Mi
-    statefulset_policy:
-      pod_management_policy: Parallel
-      update_strategy_type: RollingUpdate
-      update_strategy_partition: 0
-      revision_history_limit: 10
-      work_dir: /opt/ignite/work
-    persistence_enabled: true
-    snapshot_profiles: {}
-    pod_lifecycle:
-      termination_grace_period_seconds: 180
-      liveness_probe:
-        enabled: false
-        path: /
-        port: 8080
-        initial_delay_seconds: 0
-        period_seconds: 10
-        timeout_seconds: 1
-        success_threshold: 1
-        failure_threshold: 3
-      readiness_probe:
-        enabled: false
-        path: /
-        port: 8080
-        initial_delay_seconds: 0
-        period_seconds: 10
-        timeout_seconds: 1
-        success_threshold: 1
-        failure_threshold: 3
-      startup_probe:
-        enabled: false
-        path: /
-        port: 8080
-        initial_delay_seconds: 0
-        period_seconds: 10
-        timeout_seconds: 1
-        success_threshold: 1
-        failure_threshold: 30
-    image: gridgain8
+    monitoring:
+      cc-gke:
+        connector_template: ignite-agent
+    dcr_data_center_id: 1
+
+# ──────────────────────────────────────────────────────────────────────
+# Monitor — Control Center for ops visibility (operator-facing, not
+# part of the audience-facing demo flow)
+# ──────────────────────────────────────────────────────────────────────
+monitors:
+  cc-gke:
+    type: control-center
+    disabled: false
+    infrastructure: mainframe-payments-gke
+    # TODO before first deploy: pick a real admin email / strong password.
+    admin_email: admin@example.com
+    admin_password: changeme
+    num_nodes: 1
+    min_nodes: 1
+    max_nodes: 3
+    k8s_namespace: gg-control-center
+    k8s_node_pool_template: cc-gke-pool
+    backend:
+      image: gridgain/control-center-backend:latest
+      replicas: 1
+      exporter_target_port: 9090
+      exporter_target_port_tls: 9443
+      storage_port: 5432
+      jvm_opts: ''
+      resources:
+        cpu_request: 500m
+        memory_request: 1Gi
+        cpu_limit: 2000m
+        memory_limit: 2Gi
+    frontend:
+      image: gridgain/control-center-frontend:latest
+      replicas: 1
+      ui_port: 8008
+      ui_port_tls: 8443
+      resources:
+        cpu_request: 100m
+        memory_request: 256Mi
+        cpu_limit: 500m
+        memory_limit: 512Mi
+    storage:
+      retain_on_destroy: false
+      disk_type: pd-standard
+      storage_size: 10Gi
+    timeouts:
+      statefulset: 300
+      deployment: 300
+      login_url: 300
+      load_balancer: 300
+
+# ──────────────────────────────────────────────────────────────────────
+# Databases — non-GridGain stores plumbed via the new `databases`
+# element type (plugin schema v12). The mainframe-proxy is the
+# legacy-system stand-in; mariadb-analytics is the modern operational
+# target.
+# ──────────────────────────────────────────────────────────────────────
+databases:
+  postgres-mainframe-proxy:
+    type: postgres
+    disabled: false
+    infrastructure: mainframe-payments-gke
+    num_nodes: 1
+    min_nodes: 1
+    max_nodes: 1
+    k8s_namespace: mainframe-proxy
+    k8s_node_pool_template: db-gke-pool
+    image: postgres:16.4
+    port: 5432
+    database_name: payments
+    # TODO before first deploy: kubectl create secret generic postgres-mainframe-proxy-auth
+    #   --namespace mainframe-proxy --from-literal=username=payments --from-literal=password=<...>
+    # The user MUST also have REPLICATION privilege for the CDC connector below to work
+    # (CREATE ROLE payments WITH REPLICATION PASSWORD '...';).
+    auth_secret_ref: postgres-mainframe-proxy-auth
+    init_ddl_location: src/main/resources/db/postgres-init
+    resources:
+      cpu_request: 500m
+      memory_request: 1Gi
+      cpu_limit: "2"
+      memory_limit: 2Gi
+    storage:
+      retain_on_destroy: false
+      disk_type: pd-ssd
+      storage_size: 10Gi
+    timeouts:
+      statefulset: 300
+
+  mariadb-analytics:
+    type: mariadb
+    disabled: false
+    infrastructure: mainframe-payments-gke
+    num_nodes: 1
+    min_nodes: 1
+    max_nodes: 1
+    k8s_namespace: mariadb-analytics
+    k8s_node_pool_template: db-gke-pool
+    image: mariadb:11.4
+    port: 3306
+    database_name: payments
+    # TODO before first deploy: kubectl create secret generic mariadb-analytics-auth
+    #   --namespace mariadb-analytics --from-literal=username=payments --from-literal=password=<...>
+    #   --from-literal=root_password=<...>
+    auth_secret_ref: mariadb-analytics-auth
+    init_ddl_location: src/main/resources/db/mariadb-init
+    resources:
+      cpu_request: 500m
+      memory_request: 1Gi
+      cpu_limit: "2"
+      memory_limit: 2Gi
+    storage:
+      retain_on_destroy: false
+      disk_type: pd-ssd
+      storage_size: 10Gi
+    timeouts:
+      statefulset: 300
+
+# ──────────────────────────────────────────────────────────────────────
+# CDC Connector — Debezium + Kafka pipeline from the Postgres
+# mainframe-proxy into the GG8 cluster (plugin schema v13).
+# ──────────────────────────────────────────────────────────────────────
+cdc_connectors:
+  mainframe-to-gg:
+    disabled: false
+    source: postgres-mainframe-proxy
+    sink: mainframe-payments-gg8
+    infrastructure: mainframe-payments-gke
+    k8s_namespace: cdc-pipeline
+    k8s_node_pool_template: cdc-gke-pool
+    num_nodes: 1
+    min_nodes: 1
+    max_nodes: 1
+    mapping_rules:
+      - source_table: public.customer
+        sink_cache: Customer
+        primary_key: customer_id
+      - source_table: public.account
+        sink_cache: Account
+        primary_key: account_id
+      - source_table: public.transaction
+        sink_cache: Transaction
+        primary_key: transaction_id
+    kafka:
+      image: bitnami/kafka:3.7
+      replicas: 1
+      client_port: 9092
+      resources:
+        cpu_request: 500m
+        memory_request: 1Gi
+        cpu_limit: "2"
+        memory_limit: 2Gi
+      storage:
+        retain_on_destroy: false
+        disk_type: pd-ssd
+        storage_size: 20Gi
+    kafka_connect:
+      image: debezium/connect:3.0
+      replicas: 1
+      rest_port: 8083
+      resources:
+        cpu_request: 500m
+        memory_request: 1Gi
+        cpu_limit: "2"
+        memory_limit: 2Gi
+    debezium:
+      slot_name: mainframe_payments_slot
+      publication_name: mainframe_payments_pub
+      # TODO before first deploy: kubectl create secret generic mainframe-to-gg-debezium-auth
+      #   --namespace cdc-pipeline --from-literal=username=<replication-user> --from-literal=password=<...>
+      # The replication user must have REPLICATION privilege on the source Postgres.
+      replication_user_secret_ref: mainframe-to-gg-debezium-auth
+    timeouts:
+      kafka_statefulset: 300
+      kafka_connect_deploy: 300
+      connector_register: 180
+
+# ──────────────────────────────────────────────────────────────────────
+# Connector templates — only the ignite-agent is needed; it's the
+# small artifact the GG8 cluster runs to attach to Control Center.
+# ──────────────────────────────────────────────────────────────────────
 connector_templates:
-  gke-connector:
-    type: cloud-connector
-    platform: gke
-    k8s_node_pool_template: default-gke-pool
-    k8s_service_name: gg-cc-svc
-    k8s_app_tag: cloud-connector
-    k8s_replicas: 1
-    k8s_listener_port: 8080
-    exporter_target_hostname: gg-connector
-    exporter_target_port: 3200
-  eks-connector:
-    type: cloud-connector
-    platform: eks
-    k8s_node_pool_template: default-eks-pool
-    k8s_service_name: gg-cc-svc
-    k8s_app_tag: cloud-connector
-    k8s_replicas: 1
-    k8s_listener_port: 8080
-    exporter_target_hostname: gg-connector
-    exporter_target_port: 3200
-  gke-otel-collector:
-    type: otel-collector
-    platform: gke
-    k8s_node_pool_template: default-gke-pool
-    k8s_service_name: otel-collector-svc
-    k8s_http_listener_port: 4318
-    k8s_app_tag: otel-collector
-    k8s_replicas: 1
-    k8s_listener_port: 4317
-    k8s_cpu_request: 250m
-    k8s_memory_request: 256Mi
-    k8s_cpu_limit: 500m
-    k8s_memory_limit: 512Mi
-    k8s_job_cpu_request: 100m
-    k8s_job_memory_request: 128Mi
-    k8s_job_cpu_limit: 250m
-    k8s_job_memory_limit: 256Mi
-    export_period_millis: 5000
   ignite-agent:
     type: ignite-agent
-schema_version: 11
+
+# ──────────────────────────────────────────────────────────────────────
+# Image registries + images — all pulled from Docker Hub for the demo.
+# ──────────────────────────────────────────────────────────────────────
 image_registries:
   docker-hub-public:
     host: docker.io
     auth:
       credentials:
         kind: anonymous
-  david-personal-ghcr:
-    host: ghcr.io/escapedcanadian
+  # GHCR org used by the demo-test-client and data-generator container images.
+  # TODO before first deploy: set GHCR_PAT in your environment, replace the username
+  # with your own GHCR account, or repoint pull_from to a registry you control.
+  demo-images-ghcr:
+    host: ghcr.io/YOUR_GHCR_USERNAME
     auth:
       credentials:
         kind: env
-        username: escapedcanadian
+        username: YOUR_GHCR_USERNAME
         password_env: GHCR_PAT
     push_auth:
       credentials:
         kind: env
-        username: escapedcanadian
+        username: YOUR_GHCR_USERNAME
         token_env: GHCR_PAT
+
 images:
   gridgain8:
     pull_from: docker-hub-public
@@ -689,12 +418,6 @@ images:
     tag: 8.9.33-p1-openjdk17
     pull_policy: IfNotPresent
     gridgain_major_version: 8
-  gridgain9:
-    pull_from: docker-hub-public
-    repository: gridgain/gridgain9
-    tag: 9.1.21
-    pull_policy: IfNotPresent
-    gridgain_major_version: 9
   control-center-backend:
     pull_from: docker-hub-public
     repository: gridgain/control-center-backend
@@ -707,42 +430,17 @@ images:
     tag: 2024.4.0
     pull_policy: IfNotPresent
     gridgain_major_version: 9
+  # connectTestClient image — required by validation whenever a GG8 cluster is configured.
   test-client-gg8:
-    pull_from: david-personal-ghcr
+    pull_from: demo-images-ghcr
     repository: demo-test-client-gg8
     tag: 0.5.1-SNAPSHOT
     pull_policy: IfNotPresent
     gridgain_major_version: 8
-  test-client-gg9:
-    pull_from: david-personal-ghcr
-    repository: demo-test-client-gg9
-    tag: 0.5.1-SNAPSHOT
-    pull_policy: IfNotPresent
-    gridgain_major_version: 9
+  # dataGenerate image — used by the data-generator's in-cluster Job mode.
   data-generator-gg8:
-    pull_from: david-personal-ghcr
+    pull_from: demo-images-ghcr
     repository: gridgain-data-generator-gg8
     tag: 0.5.1-SNAPSHOT
     pull_policy: Always
     gridgain_major_version: 8
-  data-generator-gg9:
-    pull_from: david-personal-ghcr
-    repository: gridgain-data-generator-gg9
-    tag: 0.5.1-SNAPSHOT
-    pull_policy: Always
-    gridgain_major_version: 9
-dcr_templates:
-  gg8-full:
-    type: gg8
-    sender_configuration:
-      sender_groups:
-      - default
-    receiver_configuration:
-      local_inbound_port: 49000
-      message_queue_limit: 10000
-    replicate_all: true
-    cache_defaults:
-      sender_group: default
-      batch_send_size: 32768
-    caches: []
-dcr_connections: {}
