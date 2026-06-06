@@ -27,8 +27,8 @@ infrastructure_accounts:
     disabled: false
     provider: gcp
     # TODO before first deploy: replace with the GCP account / project you own.
-    gke_account: YOUR_GCP_ACCOUNT@example.com
-    gke_project: YOUR_GCP_PROJECT
+    gke_account: david.brown@gridgain.com
+    gke_project: david-brown-personal
 
 infrastructure_templates:
   mainframe-payments-gke:
@@ -277,7 +277,7 @@ databases:
     # The user MUST also have REPLICATION privilege for the CDC connector below to work
     # (CREATE ROLE payments WITH REPLICATION PASSWORD '...';).
     auth_secret_ref: postgres-mainframe-proxy-auth
-    init_ddl_location: src/main/resources/db/postgres-init
+    init_ddl_location: db/postgres-init
     resources:
       cpu_request: 500m
       memory_request: 1Gi
@@ -306,7 +306,7 @@ databases:
     #   --namespace mariadb-analytics --from-literal=username=payments --from-literal=password=<...>
     #   --from-literal=root_password=<...>
     auth_secret_ref: mariadb-analytics-auth
-    init_ddl_location: src/main/resources/db/mariadb-init
+    init_ddl_location: db/mariadb-init
     resources:
       cpu_request: 500m
       memory_request: 1Gi
