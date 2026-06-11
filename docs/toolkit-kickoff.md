@@ -52,7 +52,16 @@ error messages; no `org.gradle.*` in `core/`; SnakeYAML pinned `1.33`; bump
 Re-evaluate `src/main/resources/tooling/gke_tool_requirements.yaml` — its gcloud/kubectl upper
 bounds were widened expediently for the demo.
 
-## Coordination / out of scope
+## Coordination
+
+Cross-track comms run through **`mainframe-payments-demo/docs/track-coordination.md`** — the
+single shared log. Read it at the start of each work session and append entries (you may write
+*that one file* in the demo repo, nothing else there). It defines the entry types
+(REQUEST / CONTRACT-CHANGE / READY / INTEGRATED / BLOCKER) and the integration protocol for
+landing a toolkit change in the demo. When you have a pinnable commit for Task #1, post a
+**READY** entry there.
+
+## Out of scope
 
 Don't merge to toolkit `main` until after the demo. Demo-critical plugin fixes land on the
 frozen `feat/mainframe-payments-elements` (demo re-pins) — not cherry-picked from this branch.
