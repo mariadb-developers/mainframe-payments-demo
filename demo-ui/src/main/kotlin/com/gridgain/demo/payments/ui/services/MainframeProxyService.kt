@@ -1,0 +1,181 @@
+package com.gridgain.demo.payments.ui.services
+
+import com.gridgain.demo.payments.ui.config.UiConfig
+import com.gridgain.demo.payments.ui.model.AccountBalance
+import com.gridgain.demo.payments.ui.model.CuratedTransaction
+import com.gridgain.demo.payments.ui.model.TransactionResult
+import com.zaxxer.hikari.HikariConfig
+import com.zaxxer.hikari.HikariDataSource
+import java.math.BigDecimal
+import java.util.UUID
+import java.util.concurrent.ThreadLocalRandom
+
+class MainframeProxyService(config: UiConfig) : AutoCloseable {
+
+    // Use dataSourceClassName instead of jdbcUrl to avoid Hikari calling
+    // DriverManager.getDrivers() — that triggers ignite-core's
+    // IgniteJdbcThinDriver static init, which fails in this JVM and crashes
+    // any subsequent JDBC use.
+    private val ds: HikariDataSource = HikariDataSource(
+        HikariConfig().apply {
+            dataSourceClassName = "org.postgresql.ds.PGSimpleDataSource"
+            addDataSourceProperty("url", config.mainframeJdbcUrl)
+            addDataSourceProperty("user", config.mainframeUsername)
+            addDataSourceProperty("password", config.mainframePassword)
+            maximumPoolSize = 4
+            poolName = "mainframe-proxy"
+            // Lazy pool init: the DB may not be reachable when the UI starts
+            // (operator typically launches port-forward after the UI boots).
+            initializationFailTimeout = -1
+        },
+    )
+
+    // The curated menu is decoupled from the `transaction` table: it loads from the
+    // shipped curated-transactions.yaml so the panel shows choices even though the
+    // demo opens with zero transactions and $0 balances. See CLAUDE.md §10.
+    private val catalog: CuratedTransactionCatalog = CuratedTransactionCatalog.fromClasspath()
+
+    /**
+     * The curated menu for the mainframe panel — sourced from [catalog]
+     * (curated-transactions.yaml), not the `transaction` table, so it is populated
+     * regardless of how many transactions have actually occurred.
+     */
+    fun listCuratedTransactions(): List<CuratedTransaction> = catalog.curatedTransactions()
+
+    fun listAccountBalances(): List<AccountBalance> = ds.connection.use { c ->
+        val sql = """
+            SELECT a.account_id, c.customer_id, c.first_name, a.balance
+            FROM account a
+            JOIN customer c ON c.customer_id = a.customer_id
+            ORDER BY a.account_id
+        """.trimIndent()
+        c.prepareStatement(sql).use { ps ->
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        add(
+                            AccountBalance(
+                                accountId = rs.getLong("account_id").toString(),
+                                customerId = rs.getLong("customer_id").toString(),
+                                customerName = rs.getString("first_name"),
+                                balance = BigDecimal(rs.getLong("balance")).movePointLeft(2),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Re-applies a curated transaction (uses the same template but with a fresh
+     * transaction id and current timestamp). The cache update is what would normally
+     * propagate via CDC to GG; here the demo is showing the mainframe-side write.
+     */
+    fun executeCuratedTransaction(curatedTransactionId: String): TransactionResult = ds.connection.use { c ->
+        val template = catalog.byId(curatedTransactionId)
+        c.autoCommit = false
+        try {
+            val newTxId = ThreadLocalRandom.current().nextLong(10_000, 1_000_000_000)
+            c.prepareStatement(
+                """
+                INSERT INTO transaction (transaction_id, account_id, product_id, amount, type)
+                VALUES (?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setLong(1, newTxId)
+                ps.setLong(2, template.accountId)
+                if (template.productId == null) ps.setNull(3, java.sql.Types.BIGINT) else ps.setLong(3, template.productId)
+                ps.setLong(4, template.amountCents)
+                ps.setString(5, template.type)
+                ps.executeUpdate()
+            }
+            val delta = if (template.type == "PURCHASE") -template.amountCents else template.amountCents
+            val balanceAfter = c.prepareStatement(
+                "UPDATE account SET balance = balance + ? WHERE account_id = ? RETURNING balance",
+            ).use { ps ->
+                ps.setLong(1, delta)
+                ps.setLong(2, template.accountId)
+                ps.executeQuery().use { rs ->
+                    rs.next(); rs.getLong("balance")
+                }
+            }
+            c.commit()
+            TransactionResult(
+                transactionId = newTxId.toString(),
+                correlationId = UUID.randomUUID().toString(),
+                accountBalanceAfter = BigDecimal(balanceAfter).movePointLeft(2),
+            )
+        } catch (e: Exception) {
+            c.rollback()
+            throw e
+        } finally {
+            c.autoCommit = true
+        }
+    }
+
+    /**
+     * Truncates and re-seeds the mainframe-proxy tables to the curated demo
+     * opening state — 5 customers (1001-1005), 5 accounts (2001-2005, all
+     * mainframe-originated, all $0), 10 products (1-10), and NO transactions.
+     * The curated menu the presenter picks from lives in curated-transactions.yaml,
+     * not the `transaction` table, so the demo opens with zero transactions and
+     * $0 balances (see CLAUDE.md §10). Matches what `postgres-init/20-seed-curated.sql`
+     * produces on a fresh install, so the same SQL doesn't need to be maintained in
+     * two places: the init SQL bootstraps the empty DB, this method resets the DB
+     * back to that same state mid-demo.
+     */
+    fun reset() {
+        ds.connection.use { c ->
+            c.autoCommit = false
+            try {
+                c.createStatement().use { st ->
+                    st.execute("TRUNCATE TABLE transaction, account, product, customer RESTART IDENTITY CASCADE")
+                    st.execute(CURATED_SEED_SQL)
+                }
+                c.commit()
+            } catch (e: Exception) {
+                c.rollback()
+                throw e
+            } finally {
+                c.autoCommit = true
+            }
+        }
+    }
+
+    override fun close() {
+        ds.close()
+    }
+
+    companion object {
+        // Mirrors postgres-init/20-seed-curated.sql verbatim. If you change the
+        // canonical init script, change this too (and vice-versa). No transactions
+        // are seeded — the demo opens with zero transactions and $0 balances; the
+        // curated menu lives in curated-transactions.yaml (see CLAUDE.md §10).
+        private val CURATED_SEED_SQL = """
+            INSERT INTO customer (customer_id, first_name, source) VALUES
+                (1001, 'Raghu', 'mf'),
+                (1002, 'Sonya', 'mf'),
+                (1003, 'Mei',   'mf'),
+                (1004, 'Diego', 'mf'),
+                (1005, 'Priya', 'mf');
+            INSERT INTO account (account_id, customer_id, balance, source) VALUES
+                (2001, 1001, 0, 'mf'),
+                (2002, 1002, 0, 'mf'),
+                (2003, 1003, 0, 'mf'),
+                (2004, 1004, 0, 'mf'),
+                (2005, 1005, 0, 'mf');
+            INSERT INTO product (product_id, name, price, source) VALUES
+                (1,  'NVIDIA GeForce RTX 5080 Graphics Card',   134999, 'mf'),
+                (2,  'Meta Quest 3S VR Headset',                 43550, 'mf'),
+                (3,  'Apple MacBook Pro 16" M4 Max',            379900, 'mf'),
+                (4,  'Sony WH-1000XM6 Wireless Headphones',      39999, 'mf'),
+                (5,  'Steam Deck OLED 1TB',                      64900, 'mf'),
+                (6,  'Logitech MX Master 4 Mouse',               11999, 'mf'),
+                (7,  'Keychron Q1 Pro Mechanical Keyboard',      19999, 'mf'),
+                (8,  'Samsung Galaxy S25 Ultra',                129999, 'mf'),
+                (9,  'Google Pixel 10 Pro',                      99999, 'mf'),
+                (10, 'iPhone 17 Pro Max',                       119900, 'mf');
+        """.trimIndent()
+    }
+}

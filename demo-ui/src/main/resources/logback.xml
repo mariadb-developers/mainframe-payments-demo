@@ -1,0 +1,16 @@
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <!-- NetworkClient logs every failed reconnect attempt at WARN; with no port-forward
+         to the in-cluster broker this floods the console. The CDC tap's own retry loop
+         already surfaces connection issues at INFO, so we silence the client's internal chatter. -->
+    <logger name="org.apache.kafka" level="ERROR"/>
+    <logger name="org.apache.ignite" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>

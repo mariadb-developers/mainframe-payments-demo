@@ -1,0 +1,72 @@
+# Curated transaction CHOICES for the mainframe panel — the menu the presenter
+# picks from in phases 1 and 4. These are *templates*, not executed transactions:
+# selecting one posts a fresh transaction at demo time (MainframeProxyService).
+#
+# Why this file exists (see CLAUDE.md §10): the demo must open with ZERO
+# transactions and $0 balances, while the mainframe panel still shows the choices.
+# So the menu lives here, in a shipped resource, instead of as pre-seeded rows in
+# the `transaction` table. The Postgres seed (20-seed-curated.sql) therefore seeds
+# customers / accounts / products only — no transactions.
+#
+# Field notes:
+#   amount_cents   integer cents (matches the DB's cents-as-integer convention).
+#   customer_name  denormalized so the menu renders even when the mainframe-proxy
+#   product_name   DB is unreachable (the service uses a lazy connection pool).
+#                  product_id / product_name are null for PAYMENT entries.
+transactions:
+  - id: "3001"
+    customer_id: "1001"
+    customer_name: "Raghu"
+    account_id: 2001
+    product_id: 1
+    product_name: "NVIDIA GeForce RTX 5080 Graphics Card"
+    amount_cents: 134999
+    type: PURCHASE
+  - id: "3002"
+    customer_id: "1002"
+    customer_name: "Sonya"
+    account_id: 2002
+    product_id: 2
+    product_name: "Meta Quest 3S VR Headset"
+    amount_cents: 43550
+    type: PURCHASE
+  - id: "3003"
+    customer_id: "1003"
+    customer_name: "Mei"
+    account_id: 2003
+    product_id: 3
+    product_name: 'Apple MacBook Pro 16" M4 Max'
+    amount_cents: 379900
+    type: PURCHASE
+  - id: "3004"
+    customer_id: "1001"
+    customer_name: "Raghu"
+    account_id: 2001
+    product_id: null
+    product_name: null
+    amount_cents: 100000
+    type: PAYMENT
+  - id: "3005"
+    customer_id: "1004"
+    customer_name: "Diego"
+    account_id: 2004
+    product_id: 6
+    product_name: "Logitech MX Master 4 Mouse"
+    amount_cents: 11999
+    type: PURCHASE
+  - id: "3006"
+    customer_id: "1005"
+    customer_name: "Priya"
+    account_id: 2005
+    product_id: 5
+    product_name: "Steam Deck OLED 1TB"
+    amount_cents: 64900
+    type: PURCHASE
+  - id: "3007"
+    customer_id: "1001"
+    customer_name: "Raghu"
+    account_id: 2001
+    product_id: 7
+    product_name: "Keychron Q1 Pro Mechanical Keyboard"
+    amount_cents: 19999
+    type: PURCHASE

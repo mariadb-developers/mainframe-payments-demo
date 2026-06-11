@@ -1,0 +1,73 @@
+# Mainframe-payments-demo data model for the GG8 cluster.
+#
+# Mirrors the Postgres mainframe-proxy and MariaDB-analytics schemas table-by-table
+# (see src/main/resources/db/postgres-init/00-schema.sql) so write-through CacheStores
+# (CLAUDE.md §7) can serialize rows back and forth. Affinity column is customer_id
+# on account and transaction so a customer's data colocates on a single node.
+
+zones:
+  - name: PAYMENTS
+    storage_profiles: [default]
+    partitions: 8
+    # replicas: 1 keeps the demo's 2-node cluster honest about HA without forcing
+    # a same-replica-everywhere layout; auto-capped to node count if higher.
+    replicas: 1
+
+schemas:
+  - name: PUBLIC
+    tables:
+      # Every table carries a `source` column ('mf' = mainframe-originated via
+      # CDC, 'gg' = GG-originated via UI/generator). Both CDC pipelines filter
+      # on this column to avoid bidirectional sync loops — see
+      # cdc-sink/GgSinkTask and gg-cache-publisher/GgSourceTask for the
+      # filter logic. Keep VARCHAR(2) — 'mf'/'gg' is intentional shorthand
+      # because the value is written on every row of every event.
+      # `correlation_id` is GG-only — it travels through the publisher as a
+      # Kafka record header (not as a column on the downstream Postgres /
+      # MariaDB tables). gg-cache-publisher lifts the value onto the header
+      # and strips it from the JDBC-sink-bound payload. Lets the demo UI
+      # co-highlight the matching events that fan out from a single GG write
+      # without polluting the legacy / analytics schemas.
+      - name: customer
+        zone: PAYMENTS
+        columns:
+          - { name: customer_id,    type: BIGINT,        primary_key: true }
+          - { name: first_name,     type: VARCHAR(64) }
+          - { name: source,         type: VARCHAR(2) }
+          - { name: correlation_id, type: VARCHAR(36) }
+
+      - name: account
+        zone: PAYMENTS
+        columns:
+          - { name: account_id,     type: BIGINT,        primary_key: true }
+          - { name: customer_id,    type: BIGINT }
+          - { name: balance,        type: BIGINT }      # in cents
+          - { name: source,         type: VARCHAR(2) }
+          - { name: correlation_id, type: VARCHAR(36) }
+        indices:
+          - { name: idx_account_customer, column: customer_id }
+
+      - name: product
+        zone: PAYMENTS
+        columns:
+          - { name: product_id,     type: BIGINT,        primary_key: true }
+          - { name: name,           type: VARCHAR(255) }
+          - { name: price,          type: BIGINT }      # in cents
+          - { name: source,         type: VARCHAR(2) }
+          - { name: correlation_id, type: VARCHAR(36) }
+
+      - name: transaction
+        zone: PAYMENTS
+        columns:
+          - { name: transaction_id, type: BIGINT,      primary_key: true }
+          - { name: account_id,     type: BIGINT }
+          - { name: product_id,     type: BIGINT }
+          - { name: amount,         type: BIGINT }    # in cents
+          - { name: type,           type: VARCHAR(16) }
+          - { name: occurred_at,    type: TIMESTAMP }
+          - { name: source,         type: VARCHAR(2) }
+          - { name: correlation_id, type: VARCHAR(36) }
+        indices:
+          - { name: idx_transaction_account, column: account_id }
+          - { name: idx_transaction_product, column: product_id }
+          - { name: idx_transaction_time,    column: occurred_at }

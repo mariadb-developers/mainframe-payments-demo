@@ -42,9 +42,12 @@ schemas:
             - { share: 0.90, multiplier: 1 }
             - { share: 0.10, multiplier: 3 }
       - name: balance
-        # Random initial balance between $100 and $50,000 (cents-as-integer).
+        # All accounts start at a $0 balance (cents-as-integer).
         null_rate: 0.0
-        value_source: { kind: datafaker, expression: "#{number.numberBetween '10000','5000000'}" }
+        value_source:
+          kind: weighted-choice
+          choices:
+            - { value: 0, weight: 1 }
 
   - name: transaction
     update_ratio: 0.0

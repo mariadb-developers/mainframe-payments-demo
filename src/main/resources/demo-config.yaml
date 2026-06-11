@@ -8,8 +8,6 @@ demo:
     MariaDB analytics, with one-way CDC (Debezium + Kafka) feeding GG from the proxy.
   stage: development
   gridgain8_license_file: cluster/gridgain8-license.xml
-  gridgain9_license_file: cluster/gridgain-license.json
-  controlcenter_license_file: controlcenter/controlcenter-license.xml
   log_ready_checks: false
   ownership_tag: mainframe-payments-demo
   output_directory: build/gridgain/output
@@ -65,15 +63,6 @@ node_pool_templates:
     gke_machine_type: e2-standard-4
     gke_disk_type: pd-standard
     gke_disk_size: 30GB
-    gke_local_ssd_count: 0
-    gke_enable_autorepair: true
-    gke_enable_autoupgrade: false
-    gke_enable_ip_alias: true
-  cc-gke-pool:
-    platform: gke
-    gke_machine_type: n2d-standard-4
-    gke_disk_type: pd-standard
-    gke_disk_size: 20GB
     gke_local_ssd_count: 0
     gke_enable_autorepair: true
     gke_enable_autoupgrade: false
@@ -197,61 +186,10 @@ clusters:
     disabled: false
     template: mainframe-payments-gg8
     infrastructure: mainframe-payments-gke
-    data_models: []
+    data_models:
+      - data-model/payments-schema.yaml
     base_data: []
-    monitoring:
-      cc-gke:
-        connector_template: ignite-agent
     dcr_data_center_id: 1
-
-# ──────────────────────────────────────────────────────────────────────
-# Monitor — Control Center for ops visibility (operator-facing, not
-# part of the audience-facing demo flow)
-# ──────────────────────────────────────────────────────────────────────
-monitors:
-  cc-gke:
-    type: control-center
-    disabled: false
-    infrastructure: mainframe-payments-gke
-    # TODO before first deploy: pick a real admin email / strong password.
-    admin_email: admin@example.com
-    admin_password: changeme
-    num_nodes: 1
-    min_nodes: 1
-    max_nodes: 3
-    k8s_namespace: gg-control-center
-    k8s_node_pool_template: cc-gke-pool
-    backend:
-      image: gridgain/control-center-backend:latest
-      replicas: 1
-      exporter_target_port: 9090
-      exporter_target_port_tls: 9443
-      storage_port: 5432
-      jvm_opts: ''
-      resources:
-        cpu_request: 500m
-        memory_request: 1Gi
-        cpu_limit: 2000m
-        memory_limit: 2Gi
-    frontend:
-      image: gridgain/control-center-frontend:latest
-      replicas: 1
-      ui_port: 8008
-      ui_port_tls: 8443
-      resources:
-        cpu_request: 100m
-        memory_request: 256Mi
-        cpu_limit: 500m
-        memory_limit: 512Mi
-    storage:
-      retain_on_destroy: false
-      disk_type: pd-standard
-      storage_size: 10Gi
-    timeouts:
-      statefulset: 300
-      deployment: 300
-      login_url: 300
-      load_balancer: 300
 
 # ──────────────────────────────────────────────────────────────────────
 # Databases — non-GridGain stores plumbed via the new `databases`
@@ -345,7 +283,7 @@ cdc_connectors:
         sink_cache: Transaction
         primary_key: transaction_id
     kafka:
-      image: bitnami/kafka:3.7
+      image: apache/kafka:3.9.2
       replicas: 1
       client_port: 9092
       resources:
@@ -358,7 +296,7 @@ cdc_connectors:
         disk_type: pd-ssd
         storage_size: 20Gi
     kafka_connect:
-      image: debezium/connect:3.0
+      image: debezium/connect:3.0.0.Final
       replicas: 1
       rest_port: 8083
       resources:
@@ -377,14 +315,6 @@ cdc_connectors:
       kafka_statefulset: 300
       kafka_connect_deploy: 300
       connector_register: 180
-
-# ──────────────────────────────────────────────────────────────────────
-# Connector templates — only the ignite-agent is needed; it's the
-# small artifact the GG8 cluster runs to attach to Control Center.
-# ──────────────────────────────────────────────────────────────────────
-connector_templates:
-  ignite-agent:
-    type: ignite-agent
 
 # ──────────────────────────────────────────────────────────────────────
 # Image registries + images — all pulled from Docker Hub for the demo.
@@ -418,18 +348,6 @@ images:
     tag: 8.9.33-p1-openjdk17
     pull_policy: IfNotPresent
     gridgain_major_version: 8
-  control-center-backend:
-    pull_from: docker-hub-public
-    repository: gridgain/control-center-backend
-    tag: 2024.4.0
-    pull_policy: IfNotPresent
-    gridgain_major_version: 9
-  control-center-frontend:
-    pull_from: docker-hub-public
-    repository: gridgain/control-center-frontend
-    tag: 2024.4.0
-    pull_policy: IfNotPresent
-    gridgain_major_version: 9
   # connectTestClient image — required by validation whenever a GG8 cluster is configured.
   test-client-gg8:
     pull_from: demo-images-ghcr

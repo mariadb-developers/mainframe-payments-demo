@@ -40,3 +40,7 @@ plugins {
 // }
 
 rootProject.name = "mainframe-payments-demo"
+
+include(":demo-ui")
+include(":cdc-sink")
+include(":gg-cache-publisher")

@@ -13,6 +13,11 @@ buildscript {
 plugins {
     java
     id("com.gridgain.demo.plugin") version "0.5.1-SNAPSHOT"
+    // Declared here so :demo-ui can apply kotlin("jvm") without re-specifying the version.
+    // The included plugin build pulls Kotlin onto the shared classpath, which would
+    // otherwise conflict with a versioned `plugins { kotlin("jvm") version ... }` in
+    // the subproject.
+    kotlin("jvm") version "2.2.0" apply false
 }
 
 group = "org.gridgain.demo"
@@ -32,6 +37,15 @@ configurations.all {
         // Force all SnakeYAML dependencies to use version 1.33
         force("org.yaml:snakeyaml:1.33")
 
+        // This demo is GG8-only (CLAUDE.md §15: GG9 variant out of scope). The
+        // toolkit's plugin and UI bring GG9 client deps transitively; without
+        // these forces, Gradle's "highest version wins" resolution drags the
+        // entire runtimeClasspath up to 9.x and the GG8 JDBC thin driver class
+        // (`org.apache.ignite.IgniteJdbcThinDriver`, present in ignite-core 8.x
+        // but removed in 9.x) disappears — :deployDataModel can't find it.
+        force("org.gridgain:ignite-core:8.9.18")
+        force("org.gridgain:ignite-indexing:8.9.18")
+
         // Ensure we don't cache corrupted results
         cacheChangingModulesFor(0, TimeUnit.SECONDS)
         cacheDynamicVersionsFor(0, TimeUnit.SECONDS)
@@ -47,11 +61,10 @@ dependencies {
     implementation("com.gridgain.demo:gridgain-demo-gradle-plugin:0.5.1-SNAPSHOT")
     // UI project — provides the Ktor server for launchPluginUi task
     runtimeOnly("com.gridgain.demo:gridgain-demo-ui:0.5.1-SNAPSHOT")
-    implementation("org.gridgain:ignite-core:9.1.3")
-    implementation("org.gridgain:ignite-api:9.1.3")
-    implementation("org.gridgain:ignite-runner:9.1.3")
-    implementation("org.gridgain:ignite-client:9.1.3")
-    implementation("org.gridgain:ignite-jdbc:9.1.3")
+    // GG8 (8.9.18) — the deployed cluster is GG8 (CLAUDE.md §15: GG9 variant out of scope).
+    // Inherited GG9 entries removed; they caused JDBC handshake failures against the GG8 cluster.
+    implementation("org.gridgain:ignite-core:8.9.18")
+    implementation("org.gridgain:ignite-indexing:8.9.18")
 
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")

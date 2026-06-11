@@ -45,3 +45,10 @@ docker-arm/docker/cli/*
 jdbc/*
 failure_tests.md
 
+# Frontend build artifacts (demo-ui)
+node_modules/
+dist/
+
+# Control Center license (CC removed from this demo; license files are not committed)
+**/controlcenter-license.xml
+

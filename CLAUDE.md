@@ -54,7 +54,7 @@ Two write paths leave GG **in parallel** — one to Postgres, one to MariaDB. Th
 
 CDC flows **one way only**, mainframe-proxy → GG. The pipeline is **Debezium + Apache Kafka**, both deployed in-cluster on the supporting-services node pool (§7 details the topology, §8 the plugin packaging). It powers the demo beat where a mainframe-side transaction propagates to GG. There is no Postgres → MariaDB CDC path; MariaDB receives data only from GG's second write-through.
 
-**Slim-down delta from the toolkit-dev starting config.** The copied [mainframe-payments-demo/src/main/resources/demo-config.yaml](mainframe-payments-demo/src/main/resources/demo-config.yaml) currently inherits the 6-cluster, two-cloud starting point. The implementation pass will reduce it to: one `infrastructures` entry (GKE in one region); one `clusters` entry (GG8); two new `databases` entries (Postgres mainframe-proxy, MariaDB); one new `cdc_connectors` entry (mainframe → GG, deploying Debezium + Kafka under the hood); one `monitors` entry (Control Center, optional Prometheus/Grafana).
+**Slim-down delta from the toolkit-dev starting config.** The copied [mainframe-payments-demo/src/main/resources/demo-config.yaml](mainframe-payments-demo/src/main/resources/demo-config.yaml) currently inherits the 6-cluster, two-cloud starting point. The implementation pass will reduce it to: one `infrastructures` entry (GKE in one region); one `clusters` entry (GG8); two new `databases` entries (Postgres mainframe-proxy, MariaDB); one new `cdc_connectors` entry (mainframe → GG, deploying Debezium + Kafka under the hood). No `monitors` entry — Control Center is out of scope (§15).
 
 **Node pools.** GG runs on its own node pool, per existing toolkit norms. Postgres, MariaDB, and the demo UI run on a separate "supporting services" pool, to avoid co-locating non-GG workloads with the cluster. The data generator, when deployed in-cluster, runs on yet a third pool — the data-generator's hard anti-co-location rule already enforces this.
 
@@ -115,7 +115,7 @@ The demo opens with the data plane already running. The "bootstrapping" is inten
 - CDC pipeline (Debezium + Kafka) from Postgres → GG, live and producing zero-volume traffic.
 - GG's write-through CacheStores, wired to both Postgres and MariaDB.
 - Seeded fixture data in the Postgres mainframe-proxy (the predefined transaction list and starting balances).
-- Baseline metrics flowing into Control Center (or Prometheus/Grafana, if deployed).
+- (Cluster monitoring is out of scope — see §15.)
 - Demo UI process running; only the Mainframe panel is rendered.
 
 **Revealed progressively (per §3):** panels, data-flow animations, and the data generator's activity.
@@ -232,7 +232,7 @@ This demo invokes the plugin's standard task surface only. Per the workspace rul
 - `deployCluster` — deploys the GG8 cluster.
 - `deployDatabase` *(new, per §8)* — deploys Postgres and MariaDB.
 - `deployCdcConnector` *(new, per §8)* — wires the mainframe-proxy → GG pipeline.
-- `deployClusterMonitoring` — attaches Control Center (and optionally Prometheus/Grafana).
+- ~~`deployClusterMonitoring`~~ — not used; Control Center is out of scope (§15).
 - `deployDataModel` — provisions caches in GG.
 - `dataGenerate` — runs the payment-shaped scenarios (§10).
 - `launchPluginUi` — operator-facing only; not part of the audience-facing demo flow.
@@ -329,6 +329,7 @@ Default stance for v1: failures during the live demo are not handled gracefully.
 ## §15 Out of Scope
 
 - **MaxScale.** The current demo doesn't have a story that justifies it. A single MariaDB node is sufficient.
+- **Control Center / cluster monitoring.** Removed from the demo — the three-panel UI doesn't read from it, and the CC cluster-attach added deploy friction (attach-job timeout) for no audience value. `deployClusterMonitoring`, the `monitors` (`cc-gke`) entry, the `cc-gke-pool` node pool, the `ignite-agent` connector template, and the Control Center license/images have been removed from this demo's `demo-config.yaml`. The toolkit retains monitor support for other demos.
 - **Multi-region / DCR.** Single-cloud, single-region. The modernization story doesn't require geographic distribution at this stage.
 - **GG9 variant.** GG8 only in v1.
 - **Kafka as a first-class plugin element type.** Apache Kafka **is** deployed in v1 (as part of the `cdc_connectors` element's stack — see §7, §8), but it is not promoted to a standalone plugin element type with independent lifecycle. A second demo that needs Kafka outside the CDC context would justify that promotion (§16).
