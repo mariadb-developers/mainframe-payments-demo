@@ -55,12 +55,20 @@ class MariaDbService(config: UiConfig) : AutoCloseable {
      */
     fun reset() {
         ds.connection.use { c ->
-            // MariaDB doesn't allow multi-statement TRUNCATE in one call; do
-            // them sequentially. FKs were dropped at deploy time
-            // (see ResetService comment), so order doesn't matter.
+            // The analytics schema has FK constraints (fk_tx_account, fk_tx_product,
+            // fk_account_customer), and MariaDB refuses to TRUNCATE an FK-referenced
+            // table (it has no TRUNCATE ... CASCADE like Postgres). Disable FK checks
+            // for the duration so every table can be cleared, then re-enable before the
+            // connection returns to the pool. Statements run separately — MariaDB JDBC
+            // doesn't allow multiple statements in one execute().
             c.createStatement().use { st ->
-                listOf("transaction", "account", "product", "customer").forEach {
-                    st.execute("TRUNCATE TABLE $it")
+                st.execute("SET FOREIGN_KEY_CHECKS = 0")
+                try {
+                    listOf("transaction", "account", "product", "customer").forEach {
+                        st.execute("TRUNCATE TABLE $it")
+                    }
+                } finally {
+                    st.execute("SET FOREIGN_KEY_CHECKS = 1")
                 }
             }
         }

@@ -50,3 +50,11 @@ This file is the **single source of truth** for cross-track communication. Both 
 - **2026-06-11 · REQUEST (A→B)** — Custom-connector deployment (charter Task #1) is the top need:
   it unblocks the GG + MariaDB panels (Kafka→GG via `cdc-sink`, GG→Kafka via `gg-cache-publisher`).
   Post a **READY** here when a pinnable commit exists.
+- **2026-06-11 · QUESTION (A→B)** — The MariaDB **analytics** schema has FK constraints
+  (`fk_tx_account`, `fk_tx_product`, `fk_account_customer`). The demo's reset code had assumed
+  "FKs dropped at deploy" — now fixed on the A side (reset disables `FOREIGN_KEY_CHECKS` while
+  truncating). **Heads-up for the `gg-to-mariadb` sink:** out-of-order CDC events (e.g. a
+  transaction arriving before its account) will hit FK violations on the analytics side. When you
+  wire the sink, decide: drop the FKs on the MariaDB analytics schema (matches the apparent
+  original intent), upsert/retry, or apply in dependency order. Not blocking the demo now (sink
+  not yet deployed).
