@@ -39,8 +39,10 @@ This charter scopes a **separate effort (Track B)** to clean up, generalize, and
     (GG→Kafka). Built at `gg-cache-publisher/build/libs/gg-cache-publisher-0.0.1-SNAPSHOT.jar`.
 - There is **no committed registration config, no plugin-path/image mechanism,
   and no deploy script** for these (verified). Connector configs must be derived
-  from `GgSinkConfig.kt` / `GgSourceConfig.kt`. The JARs also look thin (deps not
-  bundled), so a fat/shadow jar or a custom Connect image is likely needed.
+  from `GgSinkConfig.kt` / `GgSourceConfig.kt`. The JARs are already **fat/shadow** — both
+  modules use the `com.gradleup.shadow` plugin and bundle ignite-core, Kafka Connect, and the
+  JDBC drivers (~7.5k classes each), so they load into Kafka Connect via plugin-path as-is;
+  the mechanism just needs to place them and register the connector configs.
 
 **What the `cdc_connectors` element should grow:** a way to declare custom
 connector plugins (image baked or plugin-path mounted **with dependencies**) and

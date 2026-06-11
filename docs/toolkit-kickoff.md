@@ -30,9 +30,10 @@ loaded/registered, so Kafka→GG and GG→Kafka don't run (GG + MariaDB panels s
 - `gg-cache-publisher` → `com.gridgain.demo.payments.ggcachepublisher.GgSourceConnector` (GG→Kafka)
 
 These connector modules live in the **demo** repo (`mainframe-payments-demo/cdc-sink`,
-`/gg-cache-publisher`) and their built JARs look thin (deps unbundled). The **toolkit** work is
-the *generic mechanism*: let `cdc_connectors` declare custom connector plugins (custom Connect
-image, or plugin-path mount **with dependencies**) and register their configs via the Connect
+`/gg-cache-publisher`) and already build **fat/shadow JARs** (the `com.gradleup.shadow` plugin
+bundles ignite-core, Kafka Connect, and the JDBC drivers — loadable via plugin-path as-is). The
+**toolkit** work is the *generic mechanism*: let `cdc_connectors` declare custom connector
+plugins (custom Connect image, or plugin-path mount) and register their configs via the Connect
 REST API — generalized, not demo-hardcoded.
 
 ## Contract — must NOT break

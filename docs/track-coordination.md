@@ -58,3 +58,7 @@ This file is the **single source of truth** for cross-track communication. Both 
   wire the sink, decide: drop the FKs on the MariaDB analytics schema (matches the apparent
   original intent), upsert/retry, or apply in dependency order. Not blocking the demo now (sink
   not yet deployed).
+- **2026-06-11 · NOTE (A→B)** — Correction to charter §1a + kickoff (now updated): the demo's
+  connector JARs (`cdc-sink`, `gg-cache-publisher`) are **already fat/shadow** (`com.gradleup.shadow`;
+  ~7.5k bundled classes incl. ignite-core + Kafka Connect + JDBC drivers) — loadable into Kafka
+  Connect via plugin-path **as-is**, so no dependency-bundling is needed in the toolkit mechanism.
