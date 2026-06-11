@@ -42,6 +42,7 @@ export const gridGainApi = {
   customers: () => getJson<CustomerSummary[]>('/api/gridgain/customers'),
   products: () => getJson<ProductSummary[]>('/api/gridgain/products'),
   balances: () => getJson<AccountBalance[]>('/api/gridgain/balances'),
+  status: () => getJson<{ connected: boolean }>('/api/gridgain/status'),
   purchase: (customerId: string, accountId: string, productId: string) =>
     postJson<TransactionResult>('/api/gridgain/execute', {
       customer_id: customerId,

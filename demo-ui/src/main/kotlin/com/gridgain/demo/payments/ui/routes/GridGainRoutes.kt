@@ -20,6 +20,9 @@ fun Route.gridGainRoutes(service: GridGainService) {
         get("/balances") {
             call.respond(service.listAccountBalances())
         }
+        get("/status") {
+            call.respond(mapOf("connected" to service.connected()))
+        }
         post("/execute") {
             val req = call.receive<ExecuteGridGainPurchaseRequest>()
             call.respond(service.executePurchase(req.customerId, req.accountId, req.productId))

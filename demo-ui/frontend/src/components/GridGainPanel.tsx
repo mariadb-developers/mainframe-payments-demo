@@ -27,8 +27,16 @@ export function GridGainPanel({ onExecuted, reloadKey }: Props) {
   const [productId, setProductId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reachable, setReachable] = useState(true)
 
   useEffect(() => {
+    // Connection status is separate from the data fetch: the data endpoints return
+    // [] for both "unreachable" and "connected but empty", so we ask explicitly to
+    // tell those two apart in the empty-state message below.
+    gridGainApi
+      .status()
+      .then((s) => setReachable(s.connected))
+      .catch(() => setReachable(false))
     Promise.all([gridGainApi.customers(), gridGainApi.products(), gridGainApi.balances()])
       .then(([c, p, b]) => {
         setCustomers(c)
@@ -94,9 +102,15 @@ export function GridGainPanel({ onExecuted, reloadKey }: Props) {
       )}
       {empty && !error && (
         <div className="relative mb-3 rounded-2xl bg-slate-50 px-3.5 py-2 text-sm text-slate-500 ring-1 ring-slate-200">
-          Caches unreachable from this host. Use{' '}
-          <code className="rounded bg-slate-200/70 px-1 font-mono text-slate-600">kubectl port-forward</code> to
-          expose the GG service, then refresh.
+          {reachable ? (
+            'Connected to GridGain — no cached data yet.'
+          ) : (
+            <>
+              GridGain not reachable from this host. Use{' '}
+              <code className="rounded bg-slate-200/70 px-1 font-mono text-slate-600">kubectl port-forward</code> to
+              expose the GG service, then refresh.
+            </>
+          )}
         </div>
       )}
 

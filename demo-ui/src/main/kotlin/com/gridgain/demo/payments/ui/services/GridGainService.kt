@@ -60,6 +60,13 @@ class GridGainService(
         }
     }
 
+    /**
+     * Whether the GG cluster is reachable right now (attempts a connect). Lets the
+     * UI distinguish "connected but caches empty" from "can't reach GG" — the data
+     * endpoints return [] for both, so they can't tell those apart on their own.
+     */
+    fun connected(): Boolean = connect() != null
+
     fun listCustomers(): List<CustomerSummary> = runQuery(
         "SELECT customer_id, first_name FROM Customer ORDER BY customer_id",
     ).map { row ->
