@@ -62,3 +62,70 @@ This file is the **single source of truth** for cross-track communication. Both 
   connector JARs (`cdc-sink`, `gg-cache-publisher`) are **already fat/shadow** (`com.gradleup.shadow`;
   ~7.5k bundled classes incl. ignite-core + Kafka Connect + JDBC drivers) — loadable into Kafka
   Connect via plugin-path **as-is**, so no dependency-bundling is needed in the toolkit mechanism.
+- **2026-06-11 · READY (B→A)** — Charter Task #1 (custom Kafka Connect connector deployment) is
+  pinnable at plugin commit `2f29a328` on `feat/toolkit-db-cdc-hardening`. Five commits stacked
+  over the frozen baseline: schema (`5b744f2f`) → DTO/spec/assembler (`56690b25`) → templates
+  (`1e849a49`) → plugin deploy/destroy (`06fe90a9`) → docs (`2f29a328`). `schema_version` stays
+  at 13 — purely additive, no migration. `./gradlew validateDemoConfiguration` against the demo's
+  unmodified `demo-config.yaml` continues to pass (covered by an explicit
+  `acceptsMinimalCompleteEntry` regression test in the schema-test class).
+
+  **What landed.** Three optional fields on each `cdc_connectors.<entry>`:
+  `kafka_connect.plugins[]` (URL + sha256 per JAR, init-container fetched into the Connect
+  plugin.path under `subPath: plugins`), `kafka_connect.jvm_opts[]` (joined as `KAFKA_OPTS`),
+  and top-level `connectors[]` (additional Connect REST registrations beyond the auto-generated
+  Debezium source, with `__PLACEHOLDER__` → secretKeyRef substitution). Plugin PVC + per-connector
+  Jobs/ConfigMaps wired into the deploy + destroy command lists with stale-delete idempotence
+  and async readiness waits. Full element-type reference:
+  [`docs/cdc-connectors.md`](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/blob/feat/toolkit-db-cdc-hardening/docs/cdc-connectors.md).
+
+  **Demo-config edits required** under `cdc_connectors.mainframe-to-gg`:
+  - `kafka_connect.plugins[]` with two entries (`cdc-sink`, `gg-cache-publisher`), each with
+    `url:` and `sha256:`. **See open question below — Track A picks the publish location.**
+  - `kafka_connect.jvm_opts[]` with the GG8 `--add-opens` flags (per
+    `project_gg8_jdk17_add_opens`) so the GG JDBC driver initialises in the Connect pod (JDK
+    17/21).
+  - Top-level `connectors[]` list under the entry with two items: `cdc-sink` (Kafka→GG sink,
+    `dialect: gg8`, JDBC URL pointing at the in-cluster GG8 thin-client service) and
+    `gg-cache-publisher` (GG→Kafka source, `gg.client.addresses` + `gg.caches`).
+
+  Concrete YAML snippets in the doc above under
+  [Additional connectors (`connectors[]`)](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/blob/feat/toolkit-db-cdc-hardening/docs/cdc-connectors.md#additional-connectors-connectors).
+
+  **Open coordination question (A internal).** The toolkit fetches each `plugins[*]` JAR from a
+  URL at init-container time and verifies the sha256. *Where will the demo publish
+  `cdc-sink-0.0.1-SNAPSHOT-all.jar` and `gg-cache-publisher-0.0.1-SNAPSHOT-all.jar`?* GitHub
+  Releases of `mainframe-payments-demo` is the obvious place (GKE nodes have default internet
+  egress for public release URLs). Once published, fill `url:` and the sha256
+  (`sha256sum <module>/build/libs/<module>-0.0.1-SNAPSHOT-all.jar`).
+
+  *Alternative if a public release isn't viable:* bake the JARs into a custom Connect image
+  (Path A in the doc) — set `kafka_connect.image` to that custom tag and omit
+  `kafka_connect.plugins[]`. The toolkit needs no other changes for this path.
+
+  **Verification (Track A side):**
+  1. Re-pin the demo's `includeBuild` target to `feat/toolkit-db-cdc-hardening @ 2f29a328`
+     (the demo's plugin worktree is currently frozen at `a4a1e245` — either bump it to the new
+     tip or switch the demo to a `mavenLocal()` pin per the toolkit-handoff §3 "optional stronger
+     isolation" path).
+  2. Apply the demo-config edits above with the published URLs+sha256.
+  3. `./gradlew validateDemoConfiguration` — stays green.
+  4. `./gradlew teardownCdcConnector -PconnectorName=mainframe-to-gg` (clean slate) →
+     `./gradlew deployCdcConnector -PconnectorName=mainframe-to-gg`.
+  5. Confirm:
+     - Connect pod reaches `Ready` (init container `fetch-plugins` succeeded on both JARs —
+       `kubectl describe pod` shows the init-container log and exit code).
+     - `kubectl get jobs -n cdc-pipeline` shows three Completed `*-register` Jobs:
+       `mainframe-to-gg-register` (Debezium), `mainframe-to-gg-cdc-sink-register`,
+       `mainframe-to-gg-gg-cache-publisher-register`.
+     - Mainframe-side transaction propagates to GG (existing Postgres → GG CDC path).
+     - GG-side transaction appears on the Kafka topic published by `gg-cache-publisher`
+       (`from-gg.public.*` or `from-mf.public.*` depending on `source` column), and `cdc-sink`
+       consumes it back into GG / mainframe-proxy as the demo's flow expects.
+
+  Post **INTEGRATED** once verified — or **BLOCKER** with the failing step.
+
+  **Out of scope, flagged for later.** The MariaDB FK QUESTION (2026-06-11) still applies when a
+  third `connectors[]` entry is added to sink GG events into the MariaDB analytics schema
+  (re-using the `cdc-sink` plugin with `dialect: mariadb`). Decide upfront — drop FKs on
+  analytics, upsert/retry, or apply in dependency order — before that wiring lands.
