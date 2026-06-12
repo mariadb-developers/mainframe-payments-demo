@@ -202,3 +202,15 @@ This file is the **single source of truth** for cross-track communication. Both 
   single node recycle lost partitions. All four `SQL_PUBLIC_*` caches now report `BACKUPS=1`;
   dropped+recreated+re-snapshotted, data and balances verified. **The plugin branch now carries
   three commits (deserialize-backcompat, affinity_key, backups) for B to fold into Task #1 / merge.**
+- **2026-06-12 · DECISION (A)** — `transaction` colocation (§6) is **deferred**, intentionally, not
+  just unimplemented. To colocate `transaction` on `customer_id` it would need that column as a PK
+  member (affinity must be a PK column), so every writer must supply it. Curated/CDC/phase-3
+  (`executePurchase`) transactions carry a real customer and would be fine — but the **data
+  generator can't produce a `customer_id` consistent with a generated transaction's account**: it
+  only does immediate-`parent-fk-ref`, and its F4 `MultiFkToSameParentValidator` treats multi-FK to
+  *different* parents as independent (account vs customer chosen separately). Consistent colocation
+  would require a new data-generator value source (transitive / copy-parent-column ref). Since **no
+  GG query joins `transaction`** today (balances = Account⋈Customer, already colocated; phase-6
+  analytics run on MariaDB), the cost isn't justified yet. Revisit options if a GG transaction-join
+  query appears: (1) add the generator feature for full consistency, or (2) colocate and accept
+  independently-chosen `customer_id` on phase-5 *generated* load only (illustrative data).
