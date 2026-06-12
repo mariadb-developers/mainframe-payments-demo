@@ -194,3 +194,11 @@ This file is the **single source of truth** for cross-track communication. Both 
     FK QUESTION (2026-06-11) applies when they land.
   - `transaction` colocation (§6) is not done — the table has no `customer_id` column to colocate
     on; only `account` (which the balances join needs) was colocated.
+- **2026-06-12 · UPDATE (A)** — Resolved the `replicas: 1` resilience follow-up. The PAYMENTS zone
+  is now `replicas: 2`. Required a third Track-B plugin commit on
+  `fix/cdc-connector-state-backcompat`: `feat(data-model)` renders a zone's replicas as a GG8
+  `CREATE TABLE ... WITH "BACKUPS=<replicas-1>"` clause (combined with `AFFINITY_KEY`) — previously
+  GG8 ignored zone replicas entirely (no `CREATE ZONE`), so caches were created with 0 backups and a
+  single node recycle lost partitions. All four `SQL_PUBLIC_*` caches now report `BACKUPS=1`;
+  dropped+recreated+re-snapshotted, data and balances verified. **The plugin branch now carries
+  three commits (deserialize-backcompat, affinity_key, backups) for B to fold into Task #1 / merge.**

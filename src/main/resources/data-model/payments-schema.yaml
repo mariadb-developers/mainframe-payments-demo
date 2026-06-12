@@ -9,9 +9,11 @@ zones:
   - name: PAYMENTS
     storage_profiles: [default]
     partitions: 8
-    # replicas: 1 keeps the demo's 2-node cluster honest about HA without forcing
-    # a same-replica-everywhere layout; auto-capped to node count if higher.
-    replicas: 1
+    # replicas: 2 = one primary + one backup per partition, so a single GG node
+    # restart (e.g. GKE node recycle / master upgrade) doesn't lose partitions.
+    # On GG8 the toolkit renders this as CREATE TABLE ... WITH "BACKUPS=1"
+    # (backups = replicas - 1); auto-capped to node count if higher.
+    replicas: 2
 
 schemas:
   - name: PUBLIC
