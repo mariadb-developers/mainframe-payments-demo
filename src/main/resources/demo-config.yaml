@@ -325,20 +325,19 @@ image_registries:
     auth:
       credentials:
         kind: anonymous
-  # GHCR org used by the demo-test-client and data-generator container images.
-  # TODO before first deploy: set GHCR_PAT in your environment, replace the username
-  # with your own GHCR account, or repoint pull_from to a registry you control.
-  demo-images-ghcr:
-    host: ghcr.io/YOUR_GHCR_USERNAME
+  # GHCR registry for the demo's derived images (copied from gridgain-demo-toolkit-dev).
+  # Auth + push use the GHCR_PAT env var (export it before deploy); no token is stored here.
+  david-personal-ghcr:
+    host: ghcr.io/escapedcanadian
     auth:
       credentials:
         kind: env
-        username: YOUR_GHCR_USERNAME
+        username: escapedcanadian
         password_env: GHCR_PAT
     push_auth:
       credentials:
         kind: env
-        username: YOUR_GHCR_USERNAME
+        username: escapedcanadian
         token_env: GHCR_PAT
 
 images:
@@ -350,14 +349,14 @@ images:
     gridgain_major_version: 8
   # connectTestClient image — required by validation whenever a GG8 cluster is configured.
   test-client-gg8:
-    pull_from: demo-images-ghcr
+    pull_from: david-personal-ghcr
     repository: demo-test-client-gg8
     tag: 0.5.1-SNAPSHOT
     pull_policy: IfNotPresent
     gridgain_major_version: 8
   # dataGenerate image — used by the data-generator's in-cluster Job mode.
   data-generator-gg8:
-    pull_from: demo-images-ghcr
+    pull_from: david-personal-ghcr
     repository: gridgain-data-generator-gg8
     tag: 0.5.1-SNAPSHOT
     pull_policy: Always
