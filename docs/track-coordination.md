@@ -129,3 +129,28 @@ This file is the **single source of truth** for cross-track communication. Both 
   third `connectors[]` entry is added to sink GG events into the MariaDB analytics schema
   (re-using the `cdc-sink` plugin with `dialect: mariadb`). Decide upfront — drop FKs on
   analytics, upsert/retry, or apply in dependency order — before that wiring lands.
+- **2026-06-11 · CLEANUP** — Bifurcation collapsed back onto `main`. There was no plugin
+  capability the demo consumed that wasn't equally plugin-mainline material, so the
+  Track-A/Track-B split had been imposing coordination overhead for no structural benefit.
+  Actions taken:
+  - `origin/main` fast-forwarded from `d5485d4a` to `2f29a328` (20-commit FF, no rewrite).
+    Includes all Track-A `databases`/`cdc_connectors` element-type work *and* Track-B's
+    `kafka_connect.plugins[]`/`jvm_opts[]`/top-level `connectors[]` additions.
+  - Demo's plugin checkout (`gridgain-demo-gradle-plugin/`) switched from
+    `feat/mainframe-payments-elements` → `main`. Both consumers (demo + toolkit-dev) now
+    build against `main`.
+  - Bifurcation docs (`docs/toolkit-kickoff.md`, `docs/toolkit-handoff.md`) replaced with
+    a single short `docs/track-b-history.md` recording what happened.
+  - Final post-cleanup tip is plugin commit `891eb808` (= `2f29a328` + one docs-cleanup
+    commit). **The pin in the READY entry above should be read as `main` rather than
+    `feat/toolkit-db-cdc-hardening@2f29a328` — same content, simpler ref.**
+  - Branches `feat/toolkit-db-cdc-hardening` and `feat/mainframe-payments-elements`
+    deleted from origin and locally. Toolkit worktree
+    (`gridgain-demo-gradle-plugin-toolkit/`) removed.
+  - No code change on the demo side. Track A's local `feat/mainframe-payments-elements`
+    plugin checkout had been fast-forwarded to `2f29a328` already (locally `[ahead 8]`),
+    so the switch to `main` was a no-op for the working tree.
+
+  The READY-entry verification checklist still applies; just substitute `main` for the
+  pin. Post INTEGRATED after the deploy reproduces the GG-side ↔ Kafka ↔ GG path through
+  the two custom connectors.
