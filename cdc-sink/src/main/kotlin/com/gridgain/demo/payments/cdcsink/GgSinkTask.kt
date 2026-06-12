@@ -18,6 +18,7 @@ class GgSinkTask : SinkTask() {
     private var jdbcUsername: String? = null
     private var jdbcPassword: String? = null
     private var connection: Connection? = null
+    private val pkColumnsByTable = mutableMapOf<String, List<String>>()
 
     enum class Dialect(val driverClass: String) {
         GG8("org.apache.ignite.IgniteJdbcThinDriver"),
@@ -138,25 +139,26 @@ class GgSinkTask : SinkTask() {
         if (row.isEmpty()) return
         val cols = row.keys.toList()
         val placeholders = cols.joinToString(", ") { "?" }
-        val pkCol = "${table}_id"
-        val nonPkCols = cols.filter { it != pkCol }
+        val keyCols = keyColumns(c, table)
+        val keyList = keyCols.joinToString(", ")
+        val nonKeyCols = cols.filter { it !in keyCols }
         val sql = when (dialect) {
             Dialect.GG8 -> """
                 MERGE INTO $table (${cols.joinToString(", ")})
-                KEY ($pkCol)
+                KEY ($keyList)
                 VALUES ($placeholders)
             """.trimIndent()
             Dialect.POSTGRES -> """
                 INSERT INTO $table (${cols.joinToString(", ")})
                 VALUES ($placeholders)
-                ON CONFLICT ($pkCol) DO UPDATE SET
-                ${nonPkCols.joinToString(", ") { "$it = EXCLUDED.$it" }}
+                ON CONFLICT ($keyList) DO UPDATE SET
+                ${nonKeyCols.joinToString(", ") { "$it = EXCLUDED.$it" }}
             """.trimIndent()
             Dialect.MARIADB -> """
                 INSERT INTO $table (${cols.joinToString(", ")})
                 VALUES ($placeholders)
                 ON DUPLICATE KEY UPDATE
-                ${nonPkCols.joinToString(", ") { "$it = VALUES($it)" }}
+                ${nonKeyCols.joinToString(", ") { "$it = VALUES($it)" }}
             """.trimIndent()
         }
         c.prepareStatement(sql).use { ps ->
@@ -164,6 +166,29 @@ class GgSinkTask : SinkTask() {
             ps.executeUpdate()
         }
     }
+
+    /**
+     * Primary-key columns for [table], introspected once via JDBC metadata and cached.
+     * The MERGE/upsert KEY clause must match the table's real PK: a table colocated by
+     * a composite PK (e.g. account keyed by (account_id, customer_id) for GG affinity,
+     * CLAUDE.md §6) needs every PK column in the KEY, not just `<table>_id`. Falls back
+     * to the `<table>_id` convention if metadata is unavailable.
+     */
+    private fun keyColumns(c: Connection, table: String): List<String> =
+        pkColumnsByTable.getOrPut(table) {
+            val found = mutableListOf<Pair<Int, String>>()
+            try {
+                c.metaData.getPrimaryKeys(null, schema, table.uppercase()).use { rs ->
+                    while (rs.next()) {
+                        found += rs.getInt("KEY_SEQ") to rs.getString("COLUMN_NAME").lowercase()
+                    }
+                }
+            } catch (e: Exception) {
+                log.warn("Could not introspect primary key for table '{}': {}", table, e.message)
+            }
+            if (found.isEmpty()) listOf("${table}_id")
+            else found.sortedBy { it.first }.map { it.second }
+        }
 
     private fun deleteByPk(c: Connection, table: String, pkColumn: String, pkValue: Any) {
         val sql = "DELETE FROM $table WHERE $pkColumn = ?"

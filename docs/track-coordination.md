@@ -154,3 +154,43 @@ This file is the **single source of truth** for cross-track communication. Both 
   The READY-entry verification checklist still applies; just substitute `main` for the
   pin. Post INTEGRATED after the deploy reproduces the GG-side ↔ Kafka ↔ GG path through
   the two custom connectors.
+- **2026-06-12 · INTEGRATED (A)** — Custom Kafka Connect CDC integration is live and verified
+  end-to-end. The GG panel now shows 5 customers + 10 products + 5 account balances; all three
+  connectors (`mainframe-to-gg-source`, `cdc-sink`, `gg-cache-publisher`) report RUNNING with
+  RUNNING tasks; a GG-side account write publishes to `from-mf.public.account`.
+
+  **What it took (demo side, on `main`):**
+  - *Custom Connect image was arm64-only* → `ImagePullBackOff` on amd64 GKE. Rebuilt multi-step
+    for `linux/amd64`; now `ghcr.io/escapedcanadian/mainframe-payments-connect:0.0.3`
+    (`connect-image/Dockerfile` now tracked). **Build amd64 explicitly** — a plain `docker build`
+    on an Apple-silicon laptop publishes an unrunnable image.
+  - *cdc-sink converter mismatch* — the Debezium source emits schemaless JSON, so the sink needs
+    `value/key.converter.schemas.enable=false` (added to the `cdc-sink` connector config).
+  - *gg-cache-publisher cache names* — `gg.caches` must be the GG cache names `SQL_PUBLIC_<TABLE>`
+    (the task strips the prefix for the topic), not bare `Customer`.
+  - *§6 account colocation* — `account` is now composite PK `(account_id, customer_id)` +
+    `affinity_key: customer_id`; `Account ⋈ Customer ON customer_id` returns all rows WITHOUT
+    `distributedJoins`. Both custom connectors were made composite-PK-aware (introspect the PK via
+    JDBC metadata; gg-cache-publisher extracts PK fields from the composite `BinaryObject` key).
+  - *Debezium replication-user secret* (`mainframe-to-gg-debezium-auth`) is recreated by
+    `scripts/create-demo-secrets.sh` and must be re-run after any CDC teardown (teardown deletes
+    the namespace and the secret with it).
+
+  **Track-B (plugin) fixes — on branch `fix/cdc-connector-state-backcompat`, NOT yet merged to
+  plugin `main` (per the no-merge-until-after-demo protocol):**
+  1. **BUG** `fix(state)` — the `connectors`/`kafka_connect.plugins`/`kafka_connect.jvm_opts` fields
+     added by Task #1 lacked `emptyList()` defaults on the deployed spec, while
+     `CURRENT_SCHEMA_VERSION` stayed at 9. Any pre-existing `deployment.yaml` then failed
+     deserialization → `Corrupted state` bricking every CDC task. Fixed with defaults +
+     `CdcConnectorStateBackCompatTest`. **B should fold this into Task #1 before merging.**
+  2. **FEATURE** `feat(data-model)` — data-model `affinity_key` support (GG8 `WITH "AFFINITY_KEY"`,
+     GG9 `COLOCATE BY`, validated against the PK). Needed for §6 colocation.
+
+  **Known follow-ups (not blocking the GG/MariaDB panels' read path):**
+  - Data-model zone `replicas: 1` (no backups) → a GG node recycle (e.g. GKE master upgrade /
+    node-pool churn) marks partitions LOST; reads degrade and writes fail until
+    `control.sh --cache reset_lost_partitions` is run (done once here). Consider `replicas: 2`.
+  - The outbound `gg-to-postgres` / `gg-to-mariadb` JDBC sinks are still not deployed; the MariaDB
+    FK QUESTION (2026-06-11) applies when they land.
+  - `transaction` colocation (§6) is not done — the table has no `customer_id` column to colocate
+    on; only `account` (which the balances join needs) was colocated.

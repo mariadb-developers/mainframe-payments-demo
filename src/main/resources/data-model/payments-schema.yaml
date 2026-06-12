@@ -38,9 +38,14 @@ schemas:
 
       - name: account
         zone: PAYMENTS
+        # customer_id is part of the PK and the affinity key so a customer's
+        # accounts colocate with the Customer row — the balances panel joins
+        # Account ⋈ Customer ON customer_id, which a non-colocated partitioned
+        # join returns empty for unless distributedJoins is forced (CLAUDE.md §6).
+        affinity_key: customer_id
         columns:
           - { name: account_id,     type: BIGINT,        primary_key: true }
-          - { name: customer_id,    type: BIGINT }
+          - { name: customer_id,    type: BIGINT,        primary_key: true }
           - { name: balance,        type: BIGINT }      # in cents
           - { name: source,         type: VARCHAR(2) }
           - { name: correlation_id, type: VARCHAR(36) }

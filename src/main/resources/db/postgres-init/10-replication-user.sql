@@ -18,4 +18,4 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO debezium;
 -- with publication.autocreate.mode=disabled so it does NOT need CREATE-on-database
 -- privilege at runtime. The publication name must match
 -- cdc_connectors.<name>.debezium.publication_name in demo-config.yaml.
-CREATE PUBLICATION mainframe_payments_pub FOR TABLE public.customer, public.account, public.transaction;
+CREATE PUBLICATION mainframe_payments_pub FOR TABLE public.customer, public.account, public.transaction, public.product;

@@ -7,6 +7,7 @@ import java.sql.Timestamp
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import org.apache.ignite.Ignition
+import org.apache.ignite.binary.BinaryObject
 import org.apache.ignite.cache.query.ContinuousQuery
 import org.apache.ignite.client.IgniteClient
 import org.apache.ignite.configuration.ClientConfiguration
@@ -50,6 +51,7 @@ class GgSourceTask : SourceTask() {
     @Volatile private var client: IgniteClient? = null
     @Volatile private var jdbc: Connection? = null
     private val pending = LinkedBlockingQueue<PendingEvent>()
+    private val pkColsByTable = mutableMapOf<String, List<String>>()
 
     override fun version(): String = "0.0.1-SNAPSHOT"
 
@@ -135,10 +137,14 @@ class GgSourceTask : SourceTask() {
         // SQL engine derives them from "<schema>.<table>"). Strip the prefix so
         // downstream topic names + table names are just the table identifier.
         val tableName = e.cacheName.removePrefix("SQL_PUBLIC_").removePrefix("sql_public_").lowercase()
-        val pkColumn = "${tableName}_id"
+        // The CQ key is a single value for a single-column PK, or a composite
+        // BinaryObject when the table is colocated by a composite PK (e.g. account
+        // keyed by (account_id, customer_id), CLAUDE.md §6). Resolve it to a
+        // column->value map so the SQL re-read and the emitted key work for both.
+        val keyMap = keyValues(e.key, pkColumnsFor(tableName))
 
-        val after = if (e.opType == "d") null else readRow(tableName, pkColumn, e.key)
-        val before = if (e.opType == "d") mapOf(pkColumn to e.key) else null
+        val after = if (e.opType == "d") null else readRow(tableName, keyMap)
+        val before = if (e.opType == "d") keyMap else null
 
         // Route by source so each downstream sink can subscribe to exactly the
         // origin it cares about without needing a value-aware Filter SMT.
@@ -180,7 +186,7 @@ class GgSourceTask : SourceTask() {
             /* topic            = */ topic,
             /* partition        = */ null,
             /* keySchema        = */ null,
-            /* key              = */ mapOf(pkColumn to e.key),
+            /* key              = */ keyMap,
             /* valueSchema      = */ null,
             /* value            = */ envelope,
             /* timestamp        = */ e.tsMs,
@@ -189,16 +195,49 @@ class GgSourceTask : SourceTask() {
     }
 
     /**
-     * Fetches the current row for [pkColumn] = [pkValue]. Returns null if the
-     * row has already been removed (race between the CQ notification and this
-     * SELECT); the caller skips the event.
+     * Fetches the current row identified by [keyMap] (column -> value for every
+     * primary-key column). Returns null if the row has already been removed (race
+     * between the CQ notification and this SELECT); the caller skips the event.
      */
-    private fun readRow(table: String, pkColumn: String, pkValue: Any): Map<String, Any?>? {
-        val sql = "SELECT * FROM PUBLIC.$table WHERE $pkColumn = ?"
+    private fun readRow(table: String, keyMap: Map<String, Any?>): Map<String, Any?>? {
+        if (keyMap.isEmpty()) return null
+        val where = keyMap.keys.joinToString(" AND ") { "$it = ?" }
+        val sql = "SELECT * FROM PUBLIC.$table WHERE $where"
         val c = jdbc ?: return null
         return c.prepareStatement(sql).use { ps ->
-            ps.setObject(1, pkValue)
+            keyMap.values.forEachIndexed { i, v -> ps.setObject(i + 1, v) }
             ps.executeQuery().use { rs -> if (rs.next()) rowToMap(rs) else null }
+        }
+    }
+
+    /**
+     * Primary-key column names (in key order, lowercased) for [table], introspected
+     * once via JDBC metadata and cached. Falls back to the `<table>_id` convention if
+     * metadata is unavailable.
+     */
+    private fun pkColumnsFor(table: String): List<String> = pkColsByTable.getOrPut(table) {
+        val found = mutableListOf<Pair<Int, String>>()
+        try {
+            jdbc?.metaData?.getPrimaryKeys(null, "PUBLIC", table.uppercase())?.use { rs ->
+                while (rs.next()) found += rs.getInt("KEY_SEQ") to rs.getString("COLUMN_NAME")
+            }
+        } catch (e: Exception) {
+            log.warn("Could not introspect primary key for table '{}': {}", table, e.message)
+        }
+        if (found.isEmpty()) listOf("${table}_id") else found.sortedBy { it.first }.map { it.second.lowercase() }
+    }
+
+    /**
+     * Resolves a ContinuousQuery key to a {column -> value} map. A single-column PK
+     * arrives as the raw value; a composite PK arrives as a [BinaryObject] whose
+     * fields are the PK columns (matched case-insensitively against [pkCols]).
+     */
+    private fun keyValues(key: Any, pkCols: List<String>): Map<String, Any?> {
+        if (key !is BinaryObject) return mapOf(pkCols.first() to key)
+        val fieldNames = key.type().fieldNames()
+        return pkCols.associateWith { col ->
+            val actual = fieldNames.firstOrNull { it.equals(col, ignoreCase = true) } ?: col
+            key.field<Any?>(actual)
         }
     }
 

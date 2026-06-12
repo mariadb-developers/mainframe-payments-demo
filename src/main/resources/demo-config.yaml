@@ -282,6 +282,40 @@ cdc_connectors:
       - source_table: public.transaction
         sink_cache: Transaction
         primary_key: transaction_id
+      - source_table: public.product
+        sink_cache: Product
+        primary_key: product_id
+    # Additional Kafka Connect connectors registered against the same Connect
+    # cluster (beyond the auto-generated Debezium source):
+    #   cdc-sink           Kafka → GG  (applies mainframe CDC events into GG SQL tables)
+    #   gg-cache-publisher GG → Kafka  (publishes GG cache changes for the outbound tailers)
+    # Both plugin classes are baked into the custom kafka_connect.image (Path A).
+    connectors:
+      - name: cdc-sink
+        class: com.gridgain.demo.payments.cdcsink.GgSinkConnector
+        config:
+          gg.jdbc.url: "jdbc:ignite:thin://mainframe-payments-gg8.mainframe-payments-gg8.svc.cluster.local:10800"
+          gg.sql.schema: PUBLIC
+          dialect: gg8
+          topics: "mainframe-to-gg.public.customer,mainframe-to-gg.public.account,mainframe-to-gg.public.transaction,mainframe-to-gg.public.product"
+          # The Debezium source publishes schemaless JSON (value/key
+          # converter.schemas.enable=false). The sink must match, or it fails with
+          # "JsonConverter with schemas.enable requires schema and payload fields".
+          key.converter: "org.apache.kafka.connect.json.JsonConverter"
+          key.converter.schemas.enable: "false"
+          value.converter: "org.apache.kafka.connect.json.JsonConverter"
+          value.converter.schemas.enable: "false"
+        secrets: {}
+      - name: gg-cache-publisher
+        class: com.gridgain.demo.payments.ggcachepublisher.GgSourceConnector
+        config:
+          gg.client.addresses: "mainframe-payments-gg8.mainframe-payments-gg8.svc.cluster.local:10800"
+          # SQL-created tables are backed by caches named SQL_PUBLIC_<TABLE>. GgSourceTask
+          # registers the ContinuousQuery on these cache names and strips the SQL_PUBLIC_
+          # prefix to derive the topic/table name. Bare names (e.g. "Customer") don't exist
+          # as caches and fail the task with "Cache does not exist".
+          gg.caches: "SQL_PUBLIC_CUSTOMER,SQL_PUBLIC_ACCOUNT,SQL_PUBLIC_TRANSACTION"
+        secrets: {}
     kafka:
       image: apache/kafka:3.9.2
       replicas: 1
@@ -296,9 +330,26 @@ cdc_connectors:
         disk_type: pd-ssd
         storage_size: 20Gi
     kafka_connect:
-      image: debezium/connect:3.0.0.Final
+      # Custom image: debezium/connect with the demo's two connector plugins baked
+      # in (built from connect-image/Dockerfile, Path A). Must be a PUBLIC GHCR
+      # package — the Connect Deployment sets no imagePullSecret for this field.
+      image: ghcr.io/escapedcanadian/mainframe-payments-connect:0.0.3
       replicas: 1
       rest_port: 8083
+      # GG8's thin-client/JDBC driver needs these --add-opens to initialise under the
+      # Connect image's JDK 17 runtime. Joined with spaces and exported as KAFKA_OPTS.
+      jvm_opts:
+        - "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED"
+        - "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+        - "--add-opens=java.base/java.lang=ALL-UNNAMED"
+        - "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED"
+        - "--add-opens=java.base/java.io=ALL-UNNAMED"
+        - "--add-opens=java.base/java.nio=ALL-UNNAMED"
+        - "--add-opens=java.base/java.util=ALL-UNNAMED"
+        - "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+        - "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED"
+        - "--add-opens=java.base/java.math=ALL-UNNAMED"
+        - "--add-opens=java.base/javax.management=ALL-UNNAMED"
       resources:
         cpu_request: 500m
         memory_request: 1Gi
