@@ -9,6 +9,7 @@ target/
 
 # Gradle
 .gradle/
+.kotlin/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
@@ -51,4 +52,7 @@ dist/
 
 # Control Center license (CC removed from this demo; license files are not committed)
 **/controlcenter-license.xml
+
+# Agent tooling (Claude Code project dir — local config/state, not shared)
+.claude/
 
