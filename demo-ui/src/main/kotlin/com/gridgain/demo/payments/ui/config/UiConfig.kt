@@ -42,7 +42,13 @@ data class UiConfig(
                 mariaDbPassword = env("PAYMENTS_MARIADB_PASSWORD", "payments-pw-replace-me"),
                 clusterName = env("PAYMENTS_GG_CLUSTER", "mainframe-payments-gg8"),
                 clientEndpointsFile = Paths.get(clientEndpoints),
-                kafkaBootstrapServers = env("PAYMENTS_KAFKA_BOOTSTRAP", "localhost:9092"),
+                // Dev default targets the broker's EXTERNAL listener (advertises localhost:9094),
+                // reachable over a port-forward of the pod's :9094. The PLAINTEXT listener (:9092)
+                // advertises the in-cluster FQDN, so a laptop consumer bootstrapped there connects
+                // but can never fetch (the advertised address is unresolvable off-cluster) and the
+                // tailers stay silently empty. In-cluster deployments override this to the internal
+                // Kafka service via PAYMENTS_KAFKA_BOOTSTRAP.
+                kafkaBootstrapServers = env("PAYMENTS_KAFKA_BOOTSTRAP", "localhost:9094"),
                 cdcTopicPrefix = env("PAYMENTS_CDC_TOPIC_PREFIX", "mainframe-to-gg"),
                 // Kafka Connect REST API — drives the cdc-sink connector's pause/resume for the
                 // phase-2 "bring GridGain online" beat. The toolkit registers the connector under

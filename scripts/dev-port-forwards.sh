@@ -26,7 +26,7 @@ mkdir -p "$LOG_DIR"
 FORWARDS=(
   "mainframe-proxy|svc/postgres-mainframe-proxy|5432:5432|Postgres (mainframe proxy)"
   "mariadb-analytics|svc/mariadb-analytics|3306:3306|MariaDB (analytics)"
-  "cdc-pipeline|svc/mainframe-to-gg-kafka|9092:9092|Kafka broker"
+  "cdc-pipeline|pod/mainframe-to-gg-kafka-0|9094:9094|Kafka EXTERNAL listener (tailer consumer)"
   "cdc-pipeline|svc/mainframe-to-gg-connect|8083:8083|Kafka Connect REST (phase-2 beat)"
   "mainframe-payments-gg8|pod/mainframe-payments-gg8-0|10800:10800|GridGain node-0 thin client"
   "mainframe-payments-gg8|pod/mainframe-payments-gg8-1|10801:10800|GridGain node-1 thin client"

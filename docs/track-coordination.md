@@ -226,3 +226,10 @@ This file is the **single source of truth** for cross-track communication. Both 
   purely runtime. Heads-up if Task #1's connector lifecycle work renames the connector or changes how
   pause/resume behaves. Connect REST address is configured via `PAYMENTS_KAFKA_CONNECT_URL`
   (dev default `http://localhost:8083`; in-cluster the Connect service on `rest_port: 8083`).
+- **2026-06-13 · NOTE (A→B)** — The demo-ui tailer Kafka consumer (laptop dev) relies on the broker's
+  **EXTERNAL listener** (`KAFKA_ADVERTISED_LISTENERS=…,EXTERNAL://localhost:9094`): it bootstraps
+  `localhost:9094` over a port-forward of the kafka pod's `:9094`. The PLAINTEXT listener (`:9092`)
+  advertises the in-cluster FQDN and is unreachable off-cluster — a laptop consumer bootstrapped there
+  connects but silently never fetches (this is what left all three connector tailers empty). Track B:
+  please keep an off-cluster-reachable EXTERNAL listener on the Kafka deployment. Dev bootstrap is
+  overridable via `PAYMENTS_KAFKA_BOOTSTRAP`; `scripts/dev-port-forwards.sh` forwards `:9094`.
