@@ -68,7 +68,13 @@ The demo proceeds in fixed phases. Panels are hidden until their phase is activa
 
 **Phase 1 — Mainframe panel only.** The presenter selects a transaction from the VT100-styled list (for example, *"Raghu buys an NVIDIA GeForce RTX 5080 Graphics card for $1349.99"*). The balances section updates with values read from the mainframe-proxy database.
 
-**Phase 2 — Activate the GridGain panel.** A phase control on the UI (see §3) reveals the GridGain panel. It displays the same transaction options and the same current balances, sourced from GG cache. Until this point the GG cluster has been silently kept in sync via CDC from the mainframe proxy; the matching balances confirm that.
+**Phase 2 — Bring GridGain online (without losing events).** A phase control on the UI (see §3) reveals the GridGain panel — initially **empty**, with the Mainframe → GG event window visible but the feed **paused** (Debezium is still capturing every mainframe change into Kafka; only the inbound apply-to-GG step is held). The presenter brings GG online in three deliberate steps, demonstrating a zero-loss cutover:
+
+1. **Bulk Load** snapshots the current mainframe data directly into GG; the GG balances populate.
+2. The presenter executes a transaction on the Mainframe panel. It appears in the event window as **queued** (white, not yet applied) — GG stays unchanged, because the feed is still paused.
+3. **Unpause Event Feed** resumes the sink; the buffered Kafka backlog — including that in-flight transaction — drains into GG. The queued events flip to **applied** (struck through), and the GG balance jumps to match.
+
+Because capture was running before the snapshot was taken, the transaction that arrived *during* the load is not lost — it was waiting, durably, in Kafka. The matching balances confirm GG is now in sync, and the audience saw exactly how it got there. Implementation: the demo backend pauses/resumes the real `cdc-sink` Kafka Connect connector and runs a direct Postgres→GG bulk copy (see §7).
 
 **Phase 3 — Execute a GridGain transaction.** The presenter selects a transaction from the GG panel. The transaction posts to GG, which debits the customer's account. GG's write-through CacheStores fan out: one update lands in the Postgres mainframe proxy, the other lands in MariaDB. The UI animates the data-flow arrow from GG to the mainframe proxy. Both balance panels update and agree.
 
@@ -92,13 +98,15 @@ The phase is the demo's control plane. Implementation responsibilities are split
 |-------|-----------------|----------|---------------|------------------|----------------------------------|-------------------------------------------|
 | 0     | hidden          | hidden   | hidden        | idle             | off                              | none                                      |
 | 1     | visible         | hidden   | hidden        | idle             | off                              | none                                      |
-| 2     | visible         | visible  | hidden        | idle             | balance-update only              | Postgres→GG (CDC) visible, zero-volume    |
+| 2     | visible         | visible (empty→loaded) | hidden | idle    | balance-update only              | Postgres→GG (CDC) visible, **paused/buffering** + bring-online controls |
 | 3     | visible         | visible  | hidden        | idle             | + GG → mainframe-proxy data flow | + GG→Postgres                             |
 | 4     | visible         | visible  | hidden        | idle             | + mainframe-proxy → GG data flow | (CDC tailer now shows traffic)            |
 | 5     | visible         | visible  | hidden        | active           | rate-controlled                  | (existing tailers, high volume)           |
 | 6     | visible         | visible  | visible       | active or idle   | analytics query results          | + GG→MariaDB                              |
 
 Note: GG→MariaDB write-through is live from phase 3, but the GG→MariaDB tailer doesn't reveal until phase 6 alongside the MariaDB panel — earlier reveal would have no spatial anchor without the MariaDB panel present.
+
+**Phase-2 bring-online sub-flow.** Phase 2 is not a single reveal but the zero-loss cutover beat (§2), driven by two buttons mounted above the Mainframe → GG window: **Bulk Load** (Postgres→GG snapshot) then **Unpause Event Feed** (resume the `cdc-sink`). These controls appear only in phase 2; the feed starts paused (re-established by a reset, §14). The Mainframe → GG window styles events two-tone during this beat — **queued** (white) while paused, **applied** (struck through) once the feed is unpaused and the backlog drains. The presenter fires the in-flight mainframe transaction manually between the two clicks; once unpaused the feed stays live for phases 3–6.
 
 **Generator control.** The phase-5 slider is a discrete, stepped control: **off** / **slow** / **medium** / **fast**. Each step stops the running scenario and restarts it at the new rate. See §10 for the rationale; live, in-flight rate change is deferred to §16.
 
@@ -112,7 +120,7 @@ The demo opens with the data plane already running. The "bootstrapping" is inten
 
 **Running before the presenter starts (hidden from view):**
 - GKE cluster, all node pools, all workloads (GG, Postgres, MariaDB, Kafka, Debezium, generator).
-- CDC pipeline (Debezium + Kafka) from Postgres → GG, live and producing zero-volume traffic.
+- CDC **capture** live (Debezium → Kafka). The inbound `cdc-sink` (Kafka → GG) starts **paused**, so GG is **empty** and the mainframe seed buffers durably in Kafka — GG is brought online explicitly during phase 2's beat (§2). This paused/empty starting state is (re)established by a demo reset (§14); if Kafka Connect is unreachable, reset fails-soft and the old behaviour (CDC refills GG immediately) applies.
 - GG's write-through CacheStores, wired to both Postgres and MariaDB.
 - Seeded fixture data in the Postgres mainframe-proxy (the predefined transaction list and starting balances).
 - (Cluster monitoring is out of scope — see §15.)
@@ -158,7 +166,9 @@ Hovering or clicking a line expands it to the full payload.
 
 **Rolling buffer.** Each tailer holds the last N events in memory (N TBD during implementation; sized for legibility at low rates, with auto-pruning that prevents memory growth during phase 5's load run). Buffer is in-memory only; no persistence in v1 (see §16 for a future-work entry on session recording).
 
-**Reveal cadence.** Tailers appear alongside their corresponding connector lines per the §3 phase model. The CDC tailer is visible from phase 2 (even at zero volume) so the audience sees the baseline pipeline before any traffic is shown. The GG→MariaDB tailer is held until phase 6 so it has a spatial anchor (the MariaDB panel) to attach to.
+**Reveal cadence.** Tailers appear alongside their corresponding connector lines per the §3 phase model. The CDC tailer is visible from phase 2 so the audience sees the baseline pipeline before any traffic is shown. The GG→MariaDB tailer is held until phase 6 so it has a spatial anchor (the MariaDB panel) to attach to.
+
+**Phase-2 two-tone styling.** During the bring-online beat (§2, §3) the Mainframe → GG window distinguishes **queued** events (bright/white — buffered in Kafka while the feed is paused, not yet in GG) from **applied** events (dimmed + struck through — drained into GG once the feed is unpaused). A header badge reads "⏸ buffering" while paused and "● applying" once live. The two bring-online buttons (Bulk Load, Unpause Event Feed) sit directly above this window. Outside phase 2 the window uses the normal per-token styling. The window scrolls chronologically (newest at the bottom, auto-scrolled into view) so it reads as a live feed.
 
 **Backend implementation.** The Ktor backend exposes three WebSocket channels — one per tailer. Sources:
 - *GG→Postgres / GG→MariaDB:* the CacheStore implementations wrap each write with a tap that emits to a Kotlin `Flow`; the Ktor backend forwards items to the WebSocket subscribers.
@@ -197,6 +207,8 @@ This section describes entities and structural constraints. Column-level schemas
 **Correlation ids.** Every GG cache update is assigned a correlation id (UUID or short-hash) before it fans out to the two CacheStores. The id is carried through both write paths and emitted on each path's event tap so the connector tailers (§5) can co-highlight matching events across the GG→Postgres and GG→MariaDB streams. The id is also stamped on CDC events flowing the other direction. Whether the id is persisted as a column on the Postgres/MariaDB rows or kept transient on the event tap only is downstream design — both choices keep the tailer experience intact; persisting it enables future cross-system queries.
 
 **One-way CDC: mainframe-proxy → GG.** Captures Postgres WAL events and applies them to the corresponding GG caches. Powers phase 4 (mainframe-initiated update propagates to the modern stack).
+
+**Pause/resume for the bring-online beat.** The inbound `cdc-sink` connector can be paused and resumed at runtime via the Kafka Connect REST API; the demo backend drives this for the phase-2 zero-loss cutover (§2). While paused, Debezium keeps capturing to Kafka and the backlog drains into GG on resume from the connector's committed offset — that durability is what guarantees no events are lost across the snapshot/cutover window. The "Bulk Load" step is a direct Postgres→GG snapshot copy run by the demo backend (idempotent MERGE, rows kept `source='mf'`), independent of the streaming sink. This is a *runtime* operation on the deployed connector — it needs no change to the `cdc_connectors` element (§8); the toolkit need only keep the sink a REST-controllable Kafka Connect connector.
 
 **CDC technology: Debezium + Apache Kafka.** Debezium's Postgres connector reads the logical replication slot and publishes change events to Kafka. A Kafka Connect sink (lightweight, custom) consumes those events and applies them to GG caches via [gridgain-demo-client-utils](gridgain-demo-client-utils/). Both Kafka and Kafka Connect run in-cluster on the supporting-services node pool. The `cdc_connectors` plugin element type (§8) packages this stack — JSONSchema, manifest generation, deploy/teardown — so the implementation choice does not leak into the configuration surface.
 

@@ -155,6 +155,60 @@ class GridGainService(
         )
     }
 
+    /**
+     * Bulk-loads a mainframe snapshot directly into the GG SQL tables — the
+     * "Bulk Load" half of the phase-2 bring-online beat (CLAUDE.md §2). Run while
+     * the cdc-sink is paused so it doesn't race the event feed; MERGE makes it
+     * idempotent, so when the feed is later resumed the replayed Kafka backlog
+     * (the same rows, plus anything that arrived during the load) upserts harmlessly.
+     *
+     * Rows keep their mainframe `source` ('mf') and carry no correlation_id —
+     * GG-originated rows ('gg', with a correlation_id) are the only ones the
+     * gg-cache-publisher fans back out to Postgres, so 'mf'-stamped bulk-loaded
+     * rows don't loop back to the source they came from.
+     *
+     * Returns the per-table row counts written.
+     */
+    fun bulkLoad(snapshot: MainframeSnapshot): Map<String, Int> {
+        connect() ?: throw IllegalStateException(
+            "GridGain cluster not reachable. Start a port-forward to the GG client port and retry.",
+        )
+        snapshot.customers.forEach {
+            runUpdate(
+                "MERGE INTO Customer (customer_id, first_name, source, correlation_id) VALUES (?, ?, ?, NULL)",
+                it.customerId, it.firstName, it.source,
+            )
+        }
+        snapshot.accounts.forEach {
+            runUpdate(
+                "MERGE INTO Account (account_id, customer_id, balance, source, correlation_id) VALUES (?, ?, ?, ?, NULL)",
+                it.accountId, it.customerId, it.balanceCents, it.source,
+            )
+        }
+        snapshot.products.forEach {
+            runUpdate(
+                "MERGE INTO Product (product_id, name, price, source, correlation_id) VALUES (?, ?, ?, ?, NULL)",
+                it.productId, it.name, it.priceCents, it.source,
+            )
+        }
+        snapshot.transactions.forEach {
+            runUpdate(
+                """
+                MERGE INTO Transaction
+                    (transaction_id, account_id, product_id, amount, type, occurred_at, source, correlation_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                """.trimIndent(),
+                it.transactionId, it.accountId, it.productId, it.amountCents, it.type, it.occurredAt, it.source,
+            )
+        }
+        return linkedMapOf(
+            "Customer" to snapshot.customers.size,
+            "Account" to snapshot.accounts.size,
+            "Product" to snapshot.products.size,
+            "Transaction" to snapshot.transactions.size,
+        )
+    }
+
     private fun runQuery(sql: String, vararg args: Any?): List<List<Any?>> {
         val c = connect() ?: return emptyList()
         val cache = c.cache<Any, Any>("SQL_PUBLIC_CUSTOMER") ?: return emptyList()
@@ -177,17 +231,16 @@ class GridGainService(
     }
 
     /**
-     * Wipes the GG caches. Reseeding is done by the CDC pipeline — the
-     * Postgres-side reseed produces mainframe-to-gg.public.* events that the
-     * cdc-sink MERGEs into GG within a couple of seconds. Doing our own
-     * INSERTs here would race that CDC pipeline and produce duplicate-key
-     * errors (CDC frequently wins because the Postgres reseed is committed
-     * earlier in the same /api/demo/reset call).
+     * Wipes the GG tables. Reset (see DemoResetService) pauses the cdc-sink
+     * BEFORE this runs, so GG stays empty afterwards: the Postgres reseed's
+     * mainframe-to-gg.public.* events buffer in Kafka rather than refilling GG.
+     * GG is then brought online explicitly during the phase-2 beat — Bulk Load
+     * (a direct Postgres→GG snapshot) followed by Unpause Event Feed (drains the
+     * buffered events). MERGE on both paths keeps the overlap idempotent.
      *
-     * GG-side test purchases (rows with `source='gg'`) are wiped without
-     * trace — they only ever lived in the modern stack, and the legacy /
-     * analytics sides already had their copies removed by truncating those
-     * stores.
+     * If Kafka Connect was unreachable and the pause failed, the live sink will
+     * refill GG from the reseed within a couple of seconds (the old behaviour) —
+     * acceptable for a quick dev loop that skips the beat.
      */
     fun reset() {
         connect() ?: throw IllegalStateException("GridGain cluster not reachable")

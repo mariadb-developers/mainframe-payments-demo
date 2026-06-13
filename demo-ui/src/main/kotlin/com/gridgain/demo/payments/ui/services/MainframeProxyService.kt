@@ -68,6 +68,91 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
     }
 
     /**
+     * Reads a full snapshot of the mainframe-proxy tables for the phase-2 bulk
+     * load into GG (CLAUDE.md §2). `source` is preserved per row so GG-side rows
+     * stay 'mf'-stamped and don't get re-published outbound as GG-originated.
+     */
+    fun readSnapshot(): MainframeSnapshot = ds.connection.use { c ->
+        val customers = c.prepareStatement(
+            "SELECT customer_id, first_name, source FROM customer ORDER BY customer_id",
+        ).use { ps ->
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        add(
+                            MainframeSnapshot.CustomerRow(
+                                customerId = rs.getLong("customer_id"),
+                                firstName = rs.getString("first_name"),
+                                source = rs.getString("source"),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        val accounts = c.prepareStatement(
+            "SELECT account_id, customer_id, balance, source FROM account ORDER BY account_id",
+        ).use { ps ->
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        add(
+                            MainframeSnapshot.AccountRow(
+                                accountId = rs.getLong("account_id"),
+                                customerId = rs.getLong("customer_id"),
+                                balanceCents = rs.getLong("balance"),
+                                source = rs.getString("source"),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        val products = c.prepareStatement(
+            "SELECT product_id, name, price, source FROM product ORDER BY product_id",
+        ).use { ps ->
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        add(
+                            MainframeSnapshot.ProductRow(
+                                productId = rs.getLong("product_id"),
+                                name = rs.getString("name"),
+                                priceCents = rs.getLong("price"),
+                                source = rs.getString("source"),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        val transactions = c.prepareStatement(
+            "SELECT transaction_id, account_id, product_id, amount, type, occurred_at, source " +
+                "FROM transaction ORDER BY transaction_id",
+        ).use { ps ->
+            ps.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        val productId = rs.getLong("product_id").let { if (rs.wasNull()) null else it }
+                        add(
+                            MainframeSnapshot.TransactionRow(
+                                transactionId = rs.getLong("transaction_id"),
+                                accountId = rs.getLong("account_id"),
+                                productId = productId,
+                                amountCents = rs.getLong("amount"),
+                                type = rs.getString("type"),
+                                occurredAt = rs.getTimestamp("occurred_at"),
+                                source = rs.getString("source"),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        MainframeSnapshot(customers, accounts, products, transactions)
+    }
+
+    /**
      * Re-applies a curated transaction (uses the same template but with a fresh
      * transaction id and current timestamp). The cache update is what would normally
      * propagate via CDC to GG; here the demo is showing the mainframe-side write.

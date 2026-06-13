@@ -91,7 +91,7 @@ export function GridGainPanel({ onExecuted, reloadKey }: Props) {
           </div>
         </div>
         <span className="rounded-full bg-sky-100/80 px-3 py-1 text-[11px] font-medium text-sky-700">
-          Cache-backed payments
+          In-memory payments
         </span>
       </div>
 
@@ -103,7 +103,7 @@ export function GridGainPanel({ onExecuted, reloadKey }: Props) {
       {empty && !error && (
         <div className="relative mb-3 rounded-2xl bg-slate-50 px-3.5 py-2 text-sm text-slate-500 ring-1 ring-slate-200">
           {reachable ? (
-            'Connected to GridGain — no cached data yet.'
+            'Connected to GridGain — no loaded data yet.'
           ) : (
             <>
               GridGain not reachable from this host. Use{' '}
@@ -162,7 +162,7 @@ export function GridGainPanel({ onExecuted, reloadKey }: Props) {
 
         {/* ── balances ── */}
         <div className="flex min-h-0 flex-col">
-          <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-slate-400">Balances · GG cache</div>
+          <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-slate-400">Balances · GridGain</div>
           <div className="flex-1 space-y-1.5 overflow-auto pr-1">
             {balances.length === 0 && (
               <div className="rounded-2xl bg-slate-50 px-3.5 py-3 text-sm text-slate-400 ring-1 ring-slate-200">

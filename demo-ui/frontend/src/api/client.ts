@@ -2,6 +2,8 @@ import type {
   AccountBalance,
   AnalyticQueryDefinition,
   AnalyticQueryResult,
+  BulkLoadResult,
+  CdcFeedStateResponse,
   CustomerSummary,
   CuratedTransaction,
   GeneratorRate,
@@ -72,4 +74,13 @@ export const generatorApi = {
 
 export const demoApi = {
   reset: () => postJson<ResetSummary>('/api/demo/reset', {}),
+}
+
+// Phase-2 "bring GridGain online" beat (CLAUDE.md §2): pause/resume the cdc-sink
+// and bulk-load the mainframe snapshot directly into GG.
+export const cdcApi = {
+  state: () => getJson<CdcFeedStateResponse>('/api/cdc/state'),
+  pause: () => postJson<CdcFeedStateResponse>('/api/cdc/pause', {}),
+  resume: () => postJson<CdcFeedStateResponse>('/api/cdc/resume', {}),
+  bulkLoad: () => postJson<BulkLoadResult>('/api/cdc/bulk-load', {}),
 }

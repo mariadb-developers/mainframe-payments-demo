@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { phaseApi } from '@/api/client'
+import { cdcApi, phaseApi } from '@/api/client'
+import { BringOnlineControls } from '@/components/BringOnlineControls'
 import { ConnectorTailers, useLatestCorrelationId } from '@/components/ConnectorTailers'
 import { GridGainPanel } from '@/components/GridGainPanel'
 import { LoadSlider } from '@/components/LoadSlider'
@@ -31,6 +32,16 @@ export default function App() {
   const [userExecuteCount, setUserExecuteCount] = useState(0)
   const [highlightedCorrelationId, setHighlightedCorrelationId] = useLatestCorrelationId()
 
+  // Phase-2 "bring GridGain online" beat (CLAUDE.md §2). feedLive mirrors the
+  // cdc-sink's paused/running state; ggLoaded tracks whether the presenter has
+  // bulk-loaded GG yet. ggRefreshTick lets the unpause handler nudge the GG
+  // panel to re-fetch once the backlog has drained (the proof transaction
+  // arrived before unpause, so no fresh cdc event ticks the panel afterward).
+  const [feedLive, setFeedLive] = useState(false)
+  const [ggLoaded, setGgLoaded] = useState(false)
+  const [bringOnlineBusy, setBringOnlineBusy] = useState(false)
+  const [ggRefreshTick, setGgRefreshTick] = useState(0)
+
   // Subscribe to the three tailers once at the App level. Events drive both
   // the ConnectorTailers visualization AND the panel-refresh logic below —
   // when the tailer that signals "your backing store was just written" ticks,
@@ -45,28 +56,70 @@ export default function App() {
       .current()
       .then((p) => setPhase(p.phase))
       .catch(() => {})
+    cdcApi
+      .state()
+      .then((s) => setFeedLive(s.state === 'LIVE'))
+      .catch(() => {})
   }, [])
 
   const v = visibility(phase)
+  const beatActive = phase === 2
   const onExecuted = (result: TransactionResult) => {
     setHighlightedCorrelationId(result.correlation_id)
     setUserExecuteCount((n) => n + 1)
   }
   const onReset = () => {
-    // Backend bounces the data planes back to seed AND moves the phase to 0;
-    // mirror that here. Bumping userExecuteCount kicks every panel's
-    // reloadKey so the curated fresh state shows immediately rather than
-    // waiting on the next CDC event.
+    // Backend bounces the data planes back to seed, re-pauses the event feed,
+    // AND moves the phase to 0; mirror that here. Bumping userExecuteCount kicks
+    // every panel's reloadKey so the curated fresh state shows immediately.
     setPhase(0)
     setUserExecuteCount((n) => n + 1)
+    setFeedLive(false)
+    setGgLoaded(false)
+    // Start the beat with a clean Mainframe→GG window — drop the reseed burst
+    // that fills Kafka so only the presenter's in-flight transaction shows.
+    cdcStream.clear()
+    ggToPostgresStream.clear()
+    ggToMariadbStream.clear()
+  }
+
+  const onBulkLoad = async () => {
+    setBringOnlineBusy(true)
+    try {
+      await cdcApi.bulkLoad()
+      setGgLoaded(true)
+      setGgRefreshTick((n) => n + 1)
+    } catch (e) {
+      console.warn('Bulk load failed', e)
+    } finally {
+      setBringOnlineBusy(false)
+    }
+  }
+
+  const onUnpause = async () => {
+    setBringOnlineBusy(true)
+    try {
+      await cdcApi.resume()
+      setFeedLive(true)
+      // The sink drains the buffered backlog asynchronously; nudge the GG panel
+      // to re-fetch a few times until the applied balances land.
+      setGgRefreshTick((n) => n + 1)
+      window.setTimeout(() => setGgRefreshTick((n) => n + 1), 1500)
+      window.setTimeout(() => setGgRefreshTick((n) => n + 1), 3500)
+    } catch (e) {
+      console.warn('Unpause event feed failed', e)
+    } finally {
+      setBringOnlineBusy(false)
+    }
   }
 
   // MainframePanel reads Postgres; refresh when GG→Postgres CDC writes land there.
-  // GridGainPanel reads GG; refresh when the mainframe→GG CDC writes land there.
+  // GridGainPanel reads GG; refresh when the mainframe→GG CDC writes land there,
+  // plus an explicit tick after Bulk Load / Unpause (see ggRefreshTick above).
   // MariaDbPanel runs queries on user click — refresh on every gg-to-mariadb event
   // so the row counts re-run themselves while a load run is active.
   const mainframeReloadKey = userExecuteCount + ggToPostgresStream.events.length
-  const ggReloadKey = userExecuteCount + cdcStream.events.length
+  const ggReloadKey = userExecuteCount + cdcStream.events.length + ggRefreshTick
   const mariaReloadKey = userExecuteCount + ggToMariadbStream.events.length
 
   return (
@@ -97,8 +150,24 @@ export default function App() {
 
         <ConnectorTailers
           highlightedCorrelationId={highlightedCorrelationId}
+          feedLive={feedLive}
+          beatActive={beatActive}
           sources={[
-            { id: 'cdc', label: 'Mainframe → GG', visible: v.cdcTailer },
+            {
+              id: 'cdc',
+              label: 'Mainframe → GG',
+              visible: v.cdcTailer,
+              appliedStyling: true,
+              topControls: beatActive ? (
+                <BringOnlineControls
+                  ggLoaded={ggLoaded}
+                  feedLive={feedLive}
+                  busy={bringOnlineBusy}
+                  onBulkLoad={onBulkLoad}
+                  onUnpause={onUnpause}
+                />
+              ) : undefined,
+            },
             { id: 'gg-to-postgres', label: 'GG → Mainframe', visible: v.ggToPostgresTailer },
             { id: 'gg-to-mariadb', label: 'GG → MariaDB', visible: v.ggToMariaTailer },
           ]}

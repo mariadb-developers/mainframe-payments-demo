@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TailerEvent } from '@/types/api'
 
 const MAX_BUFFER = 50
@@ -55,5 +55,11 @@ export function useTailerWebSocket(source: string) {
     }
   }, [source])
 
-  return { events, connected }
+  // Empties the in-memory buffer without dropping the WebSocket — used on demo
+  // reset so the Mainframe→GG window starts the phase-2 beat clean (the reseed
+  // burst that fills Kafka shouldn't clutter the window before the presenter
+  // fires the in-flight transaction).
+  const clear = useCallback(() => setEvents([]), [])
+
+  return { events, connected, clear }
 }

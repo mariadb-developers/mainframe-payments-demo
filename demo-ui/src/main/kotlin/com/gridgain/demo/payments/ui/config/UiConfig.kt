@@ -15,6 +15,8 @@ data class UiConfig(
     val clientEndpointsFile: Path,
     val kafkaBootstrapServers: String,
     val cdcTopicPrefix: String,
+    val kafkaConnectUrl: String,
+    val cdcSinkConnectorName: String,
     val projectDirectory: Path,
 ) {
     companion object {
@@ -42,6 +44,12 @@ data class UiConfig(
                 clientEndpointsFile = Paths.get(clientEndpoints),
                 kafkaBootstrapServers = env("PAYMENTS_KAFKA_BOOTSTRAP", "localhost:9092"),
                 cdcTopicPrefix = env("PAYMENTS_CDC_TOPIC_PREFIX", "mainframe-to-gg"),
+                // Kafka Connect REST API — drives the cdc-sink connector's pause/resume for the
+                // phase-2 "bring GridGain online" beat. Connector name matches demo-config.yaml
+                // cdc_connectors.mainframe-to-gg.connectors[].name. In dev, port-forward the
+                // Connect service (rest_port 8083) to this URL.
+                kafkaConnectUrl = env("PAYMENTS_KAFKA_CONNECT_URL", "http://localhost:8083"),
+                cdcSinkConnectorName = env("PAYMENTS_CDC_SINK_CONNECTOR", "cdc-sink"),
                 projectDirectory = projectDir,
             )
         }

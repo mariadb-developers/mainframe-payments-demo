@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.gridgain.demo.payments.ui.config.UiConfig
+import com.gridgain.demo.payments.ui.routes.bringOnlineRoutes
 import com.gridgain.demo.payments.ui.routes.demoRoutes
 import com.gridgain.demo.payments.ui.routes.generatorRoutes
 import com.gridgain.demo.payments.ui.routes.gridGainRoutes
@@ -12,6 +13,8 @@ import com.gridgain.demo.payments.ui.routes.mainframeRoutes
 import com.gridgain.demo.payments.ui.routes.mariaDbRoutes
 import com.gridgain.demo.payments.ui.routes.phaseRoutes
 import com.gridgain.demo.payments.ui.routes.tailerRoutes
+import com.gridgain.demo.payments.ui.services.BulkLoadService
+import com.gridgain.demo.payments.ui.services.CdcSinkControlService
 import com.gridgain.demo.payments.ui.services.DemoResetService
 import com.gridgain.demo.payments.ui.services.GeneratorControlService
 import com.gridgain.demo.payments.ui.services.GridGainService
@@ -101,12 +104,15 @@ fun Application.configureRouting(config: UiConfig) {
     val gridGainService = GridGainService(config)
     val phaseService = PhaseService()
     val generatorService = GeneratorControlService(config)
+    val cdcSinkControlService = CdcSinkControlService(config)
+    val bulkLoadService = BulkLoadService(mainframeService, gridGainService)
     val resetService = DemoResetService(
         mainframeService = mainframeService,
         mariaDbService = mariaDbService,
         gridGainService = gridGainService,
         phaseService = phaseService,
         generatorService = generatorService,
+        cdcSinkControlService = cdcSinkControlService,
     )
     // Three tailer taps, one per UI panel — each reads from Kafka directly so
     // the panel reflects exactly what the corresponding sink applies:
@@ -153,6 +159,7 @@ fun Application.configureRouting(config: UiConfig) {
             phaseRoutes(phaseService)
             tailerRoutes(tailerService)
             generatorRoutes(generatorService)
+            bringOnlineRoutes(cdcSinkControlService, bulkLoadService)
             demoRoutes(resetService)
             get("/health") {
                 call.respond(mapOf("status" to "ok"))

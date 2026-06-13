@@ -73,6 +73,17 @@ export interface ResetStep {
   result: string
 }
 
+// Phase-2 "bring GridGain online" beat (CLAUDE.md §2).
+export type CdcFeedStateName = 'PAUSED' | 'LIVE' | 'UNKNOWN'
+
+export interface CdcFeedStateResponse {
+  state: CdcFeedStateName
+}
+
+export interface BulkLoadResult {
+  tables_loaded: Record<string, number>
+}
+
 export interface ResetSummary {
   steps: ResetStep[]
 }

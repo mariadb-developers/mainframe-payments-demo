@@ -53,6 +53,11 @@ data class AnalyticQueryDefinition(
     val description: String,
 )
 
+/** Per-table row counts written by the phase-2 bulk load (CLAUDE.md §2). */
+data class BulkLoadResult(
+    val tablesLoaded: Map<String, Int>,
+)
+
 data class AnalyticQueryResult(
     val queryId: String,
     val columns: List<String>,
