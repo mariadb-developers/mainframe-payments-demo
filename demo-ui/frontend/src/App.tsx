@@ -63,6 +63,17 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  // Empty the Mainframe→GG window the instant the beat reveals it (phase 2). The
+  // post-reset Postgres reseed flows through live Debezium into this window as a
+  // burst of queued lines — but those rows are exactly what Bulk Load already
+  // loads into GG, so on Unpause they drain as idempotent no-ops and only confuse
+  // the audience. Clearing here (not on Bulk Load, which is too late) means the
+  // only queued event ever shown is the in-flight transaction the presenter fires.
+  useEffect(() => {
+    if (phase === 2) cdcStream.clear()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
   const v = visibility(phase)
   const beatActive = phase === 2
   const onExecuted = (result: TransactionResult) => {

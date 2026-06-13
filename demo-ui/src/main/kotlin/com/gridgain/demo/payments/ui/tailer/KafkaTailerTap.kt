@@ -91,7 +91,11 @@ class KafkaTailerTap(
     private fun toTailerEvent(rec: org.apache.kafka.clients.consumer.ConsumerRecord<String, String>): TailerEvent? {
         val value = rec.value()
         if (value.isNullOrBlank()) return null
-        val node = runCatching { mapper.readTree(value) }.getOrNull() ?: return null
+        val root = runCatching { mapper.readTree(value) }.getOrNull() ?: return null
+        // Debezium source topics are unwrapped; gg-cache-publisher topics come
+        // through Connect's JsonConverter (schemas.enable=true) wrapped as
+        // {"schema":..,"payload":..}. Unwrap so both parse the same.
+        val node = unwrapConnectEnvelope(root)
         val after = node.path("after")
         val before = node.path("before")
         val row = if (!after.isMissingNode && !after.isNull) after else before
@@ -133,5 +137,17 @@ class KafkaTailerTap(
     override fun close() {
         stopped = true
         consumer?.wakeup()
+    }
+
+    companion object {
+        /**
+         * Returns the change-event envelope, unwrapping Kafka Connect's
+         * JsonConverter `{"schema":..,"payload":..}` wrapper when present (the
+         * gg-cache-publisher topics carry it; the Debezium source topics don't).
+         * Requires BOTH `schema` and `payload` so a row that merely has a column
+         * named `payload` isn't mistaken for the wrapper.
+         */
+        fun unwrapConnectEnvelope(root: com.fasterxml.jackson.databind.JsonNode): com.fasterxml.jackson.databind.JsonNode =
+            if (root.has("schema") && root.has("payload")) root.path("payload") else root
     }
 }
