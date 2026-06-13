@@ -214,14 +214,15 @@ This file is the **single source of truth** for cross-track communication. Both 
   analytics run on MariaDB), the cost isn't justified yet. Revisit options if a GG transaction-join
   query appears: (1) add the generator feature for full consistency, or (2) colocate and accept
   independently-chosen `customer_id` on phase-5 *generated* load only (illustrative data).
-- **2026-06-13 · CONTRACT (A→B)** — New runtime dependency on the `cdc-sink` connector. The demo UI
-  now drives the phase-2 "bring GridGain online without losing events" beat (CLAUDE.md §2) by
-  **pausing/resuming the `cdc-sink` Kafka Connect connector at runtime via the Connect REST API**
-  (`PUT /connectors/cdc-sink/{pause,resume}`, `GET .../status`), plus a direct Postgres→GG bulk-copy.
-  Two load-bearing assumptions for Track B: (1) the inbound sink stays a **REST-controllable Kafka
-  Connect connector** (not a bespoke always-on process) and (2) its **name remains `cdc-sink`**
-  (matches `demo-config.yaml` `cdc_connectors.mainframe-to-gg.connectors[].name`; overridable in the
-  demo via `PAYMENTS_CDC_SINK_CONNECTOR`). No `cdc_connectors` *element* change is required — this is
+- **2026-06-13 · CONTRACT (A→B)** — New runtime dependency on the cdc-sink connector (registered as
+  `mainframe-to-gg-cdc-sink`). The demo UI now drives the phase-2 "bring GridGain online without
+  losing events" beat (CLAUDE.md §2) by **pausing/resuming that Kafka Connect connector at runtime
+  via the Connect REST API** (`PUT /connectors/mainframe-to-gg-cdc-sink/{pause,resume}`,
+  `GET .../status`), plus a direct Postgres→GG bulk-copy. Two load-bearing assumptions for Track B:
+  (1) the inbound sink stays a **REST-controllable Kafka Connect connector** (not a bespoke
+  always-on process) and (2) the deployed **name stays `mainframe-to-gg-cdc-sink`** — the toolkit
+  prefixes `connectors[].name` (`cdc-sink`) with the `cdc_connectors` entry name (`mainframe-to-gg`),
+  so the registered name is NOT the bare `cdc-sink`; overridable via `PAYMENTS_CDC_SINK_CONNECTOR`. No `cdc_connectors` *element* change is required — this is
   purely runtime. Heads-up if Task #1's connector lifecycle work renames the connector or changes how
   pause/resume behaves. Connect REST address is configured via `PAYMENTS_KAFKA_CONNECT_URL`
   (dev default `http://localhost:8083`; in-cluster the Connect service on `rest_port: 8083`).

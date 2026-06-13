@@ -45,11 +45,12 @@ data class UiConfig(
                 kafkaBootstrapServers = env("PAYMENTS_KAFKA_BOOTSTRAP", "localhost:9092"),
                 cdcTopicPrefix = env("PAYMENTS_CDC_TOPIC_PREFIX", "mainframe-to-gg"),
                 // Kafka Connect REST API — drives the cdc-sink connector's pause/resume for the
-                // phase-2 "bring GridGain online" beat. Connector name matches demo-config.yaml
-                // cdc_connectors.mainframe-to-gg.connectors[].name. In dev, port-forward the
-                // Connect service (rest_port 8083) to this URL.
+                // phase-2 "bring GridGain online" beat. The toolkit registers the connector under
+                // "<cdc_connectors-entry-name>-<connectors[].name>", i.e. the demo-config entry
+                // `mainframe-to-gg` + connector `cdc-sink` => `mainframe-to-gg-cdc-sink` (NOT the
+                // bare `cdc-sink`). In dev, port-forward the Connect service (rest_port 8083) here.
                 kafkaConnectUrl = env("PAYMENTS_KAFKA_CONNECT_URL", "http://localhost:8083"),
-                cdcSinkConnectorName = env("PAYMENTS_CDC_SINK_CONNECTOR", "cdc-sink"),
+                cdcSinkConnectorName = env("PAYMENTS_CDC_SINK_CONNECTOR", "mainframe-to-gg-cdc-sink"),
                 projectDirectory = projectDir,
             )
         }
