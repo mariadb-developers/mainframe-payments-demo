@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { cdcApi, phaseApi } from '@/api/client'
+import { useCallback, useEffect, useState } from 'react'
+import { cdcApi, gridGainApi, phaseApi } from '@/api/client'
 import { BringOnlineControls } from '@/components/BringOnlineControls'
 import { ConnectorTailers, useLatestCorrelationId } from '@/components/ConnectorTailers'
+import type { Lookups } from '@/components/ConnectorTailers'
 import { GridGainPanel } from '@/components/GridGainPanel'
 import { LoadSlider } from '@/components/LoadSlider'
 import { MainframePanel } from '@/components/MainframePanel'
@@ -43,6 +44,28 @@ export default function App() {
   const [bringOnlineError, setBringOnlineError] = useState<string | null>(null)
   const [ggRefreshTick, setGgRefreshTick] = useState(0)
 
+  // id→name maps so the connector tailers can render "Raghu · PURCHASE $1349.99"
+  // instead of "transaction key=...". Built from the GG customer/product/balance
+  // lists; names are stable across the demo, so we (re)fetch on mount and after a
+  // Bulk Load (GG is empty until then). Empty maps just fall back to ids.
+  const [lookups, setLookups] = useState<Lookups>({ customerByAccount: {}, customerById: {}, productById: {} })
+  const refreshLookups = useCallback(async () => {
+    try {
+      const [balances, products] = await Promise.all([gridGainApi.balances(), gridGainApi.products()])
+      const customerByAccount: Record<string, string> = {}
+      const customerById: Record<string, string> = {}
+      for (const b of balances) {
+        customerByAccount[b.account_id] = b.customer_name
+        customerById[b.customer_id] = b.customer_name
+      }
+      const productById: Record<string, string> = {}
+      for (const p of products) productById[p.product_id] = p.name
+      setLookups({ customerByAccount, customerById, productById })
+    } catch {
+      /* GG empty/unreachable — keep prior maps; tailers fall back to ids */
+    }
+  }, [])
+
   // Subscribe to the three tailers once at the App level. Events drive both
   // the ConnectorTailers visualization AND the panel-refresh logic below —
   // when the tailer that signals "your backing store was just written" ticks,
@@ -61,7 +84,8 @@ export default function App() {
       .state()
       .then((s) => setFeedLive(s.state === 'LIVE'))
       .catch(() => {})
-  }, [])
+    void refreshLookups()
+  }, [refreshLookups])
 
   // Empty the Mainframe→GG window the instant the beat reveals it (phase 2). The
   // post-reset Postgres reseed flows through live Debezium into this window as a
@@ -103,6 +127,7 @@ export default function App() {
       await cdcApi.bulkLoad()
       setGgLoaded(true)
       setGgRefreshTick((n) => n + 1)
+      void refreshLookups() // GG now has the customers/products — resolve names in the tailers
     } catch (e) {
       // Surface the failure on-screen, not just the console — a silent failure
       // here reads as "the button does nothing" (CLAUDE.md §2 beat).
@@ -169,6 +194,7 @@ export default function App() {
           highlightedCorrelationId={highlightedCorrelationId}
           feedLive={feedLive}
           beatActive={beatActive}
+          lookups={lookups}
           sources={[
             {
               id: 'cdc',

@@ -20,6 +20,58 @@ export interface TailerSource {
 
 type AppliedState = 'normal' | 'queued' | 'applied'
 
+/** id→name maps so the tailer can show audience-friendly text (customer/product
+ *  names) instead of raw foreign keys. Sourced from the GG customer/product/
+ *  balance lists (see App). Empty maps simply fall back to ids. */
+export interface Lookups {
+  customerByAccount: Record<string, string>
+  customerById: Record<string, string>
+  productById: Record<string, string>
+}
+
+const EMPTY_LOOKUPS: Lookups = { customerByAccount: {}, customerById: {}, productById: {} }
+
+/** Money columns (balance, amount, price) are integer cents. */
+function money(cents: unknown): string {
+  const n = Number(cents)
+  if (!Number.isFinite(n)) return '?'
+  return `${n < 0 ? '-' : ''}$${(Math.abs(n) / 100).toFixed(2)}`
+}
+
+/**
+ * An audience-facing one-liner for an event, built from its row payload + the
+ * id→name lookups. Falls back to ids where the data model carries no user-visible
+ * field (e.g. an account row has customer_id, not the name — resolved via lookups
+ * when GG data is loaded, else shown as the account id).
+ */
+function eventSummary(event: TailerEvent, lk: Lookups): string {
+  const p = event.payload as Record<string, unknown>
+  const s = (k: string): string | undefined => (p[k] != null ? String(p[k]) : undefined)
+  switch (event.table) {
+    case 'customer':
+      return s('first_name') ?? `customer ${s('customer_id') ?? '?'}`
+    case 'product': {
+      const name = s('name')
+      return name ? `${name} · ${money(p.price)}` : `product ${s('product_id') ?? '?'}`
+    }
+    case 'account': {
+      const cid = s('customer_id')
+      const who = (cid && lk.customerById[cid]) || `account ${s('account_id') ?? '?'}`
+      return `${who} · balance ${money(p.balance)}`
+    }
+    case 'transaction': {
+      const aid = s('account_id')
+      const pid = s('product_id')
+      const who = (aid && lk.customerByAccount[aid]) || `account ${aid ?? '?'}`
+      const product = pid && lk.productById[pid] ? ` · ${lk.productById[pid]}` : ''
+      const type = s('type') ?? ''
+      return `${who} · ${type} ${money(p.amount)}${product}`.replace(/\s+/g, ' ').trim()
+    }
+    default:
+      return `key=${event.key}`
+  }
+}
+
 interface Props {
   sources: TailerSource[]
   streams: Record<string, TailerStream>
@@ -28,9 +80,18 @@ interface Props {
   // events, and whether the beat's two-tone styling is active at all.
   feedLive: boolean
   beatActive: boolean
+  // id→name maps for audience-friendly event text; defaults to empty (ids only).
+  lookups?: Lookups
 }
 
-export function ConnectorTailers({ sources, streams, highlightedCorrelationId, feedLive, beatActive }: Props) {
+export function ConnectorTailers({
+  sources,
+  streams,
+  highlightedCorrelationId,
+  feedLive,
+  beatActive,
+  lookups = EMPTY_LOOKUPS,
+}: Props) {
   const gridCols = { gridTemplateColumns: `repeat(${sources.length}, minmax(0, 1fr))` }
   const hasControls = sources.some((s) => s.topControls)
   return (
@@ -53,6 +114,7 @@ export function ConnectorTailers({ sources, streams, highlightedCorrelationId, f
             stream={streams[s.id]}
             highlightedCorrelationId={highlightedCorrelationId}
             appliedState={appliedStateFor(s, beatActive, feedLive)}
+            lookups={lookups}
           />
         ))}
       </div>
@@ -73,12 +135,14 @@ function SingleTailer({
   stream,
   highlightedCorrelationId,
   appliedState,
+  lookups,
 }: {
   label: string
   visible: boolean
   stream: TailerStream | undefined
   highlightedCorrelationId: string | null
   appliedState: AppliedState
+  lookups: Lookups
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const events = stream?.events ?? []
@@ -108,6 +172,7 @@ function SingleTailer({
             event={e}
             highlighted={!!e.correlation_id && e.correlation_id === highlightedCorrelationId}
             appliedState={appliedState}
+            lookups={lookups}
           />
         ))}
       </div>
@@ -135,12 +200,17 @@ function TailerRow({
   event,
   highlighted,
   appliedState,
+  lookups,
 }: {
   event: TailerEvent
   highlighted: boolean
   appliedState: AppliedState
+  lookups: Lookups
 }) {
   const ts = event.timestamp.slice(11, 23) // HH:mm:ss.SSS substring of ISO 8601
+  // Audience-friendly text: customer/product names + dollar amounts pulled from
+  // the row payload (+ id→name lookups), instead of raw "table key=<id>".
+  const summary = eventSummary(event, lookups)
   // queued = not yet applied to GG (bright white); applied = drained into GG
   // (dimmed + struck through). normal = the steady-state colored tokens used
   // outside the beat. During the beat the per-token colors are dropped so the
@@ -162,8 +232,7 @@ function TailerRow({
     >
       <span className={colored ? 'text-surface-500' : ''}>{ts}</span>{' '}
       <span className={colored ? 'text-gg-400' : ''}>{event.operation}</span>{' '}
-      <span className={colored ? 'text-surface-400' : ''}>{event.table}</span>{' '}
-      <span className={colored ? 'text-surface-200' : ''}>key={event.key}</span>
+      <span className={colored ? 'text-surface-100' : ''}>{summary}</span>
       {event.correlation_id && (
         <span className={colored ? 'text-surface-500' : ''}> [corr={event.correlation_id.slice(0, 8)}]</span>
       )}
