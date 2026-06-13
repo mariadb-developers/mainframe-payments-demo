@@ -40,6 +40,7 @@ export default function App() {
   const [feedLive, setFeedLive] = useState(false)
   const [ggLoaded, setGgLoaded] = useState(false)
   const [bringOnlineBusy, setBringOnlineBusy] = useState(false)
+  const [bringOnlineError, setBringOnlineError] = useState<string | null>(null)
   const [ggRefreshTick, setGgRefreshTick] = useState(0)
 
   // Subscribe to the three tailers once at the App level. Events drive both
@@ -76,6 +77,7 @@ export default function App() {
     setUserExecuteCount((n) => n + 1)
     setFeedLive(false)
     setGgLoaded(false)
+    setBringOnlineError(null)
     // Start the beat with a clean Mainframe→GG window — drop the reseed burst
     // that fills Kafka so only the presenter's in-flight transaction shows.
     cdcStream.clear()
@@ -85,12 +87,15 @@ export default function App() {
 
   const onBulkLoad = async () => {
     setBringOnlineBusy(true)
+    setBringOnlineError(null)
     try {
       await cdcApi.bulkLoad()
       setGgLoaded(true)
       setGgRefreshTick((n) => n + 1)
     } catch (e) {
-      console.warn('Bulk load failed', e)
+      // Surface the failure on-screen, not just the console — a silent failure
+      // here reads as "the button does nothing" (CLAUDE.md §2 beat).
+      setBringOnlineError(`Bulk Load failed — ${(e as Error).message}`)
     } finally {
       setBringOnlineBusy(false)
     }
@@ -98,6 +103,7 @@ export default function App() {
 
   const onUnpause = async () => {
     setBringOnlineBusy(true)
+    setBringOnlineError(null)
     try {
       await cdcApi.resume()
       setFeedLive(true)
@@ -107,7 +113,7 @@ export default function App() {
       window.setTimeout(() => setGgRefreshTick((n) => n + 1), 1500)
       window.setTimeout(() => setGgRefreshTick((n) => n + 1), 3500)
     } catch (e) {
-      console.warn('Unpause event feed failed', e)
+      setBringOnlineError(`Unpause Event Feed failed — ${(e as Error).message}`)
     } finally {
       setBringOnlineBusy(false)
     }
@@ -163,6 +169,7 @@ export default function App() {
                   ggLoaded={ggLoaded}
                   feedLive={feedLive}
                   busy={bringOnlineBusy}
+                  error={bringOnlineError}
                   onBulkLoad={onBulkLoad}
                   onUnpause={onUnpause}
                 />
