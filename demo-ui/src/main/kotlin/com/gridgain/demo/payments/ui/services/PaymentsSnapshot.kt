@@ -3,18 +3,17 @@ package com.gridgain.demo.payments.ui.services
 import java.sql.Timestamp
 
 /**
- * A point-in-time copy of the mainframe-proxy (Postgres) tables, used by the
- * phase-2 "bring GridGain online" beat to bulk-load GG directly from the
- * mainframe — the snapshot half of "capture first, then snapshot, then stream"
- * (CLAUDE.md §2). Read while the cdc-sink is paused so the load never races the
- * event feed.
+ * A point-in-time copy of the payments tables (customer / account / product /
+ * transaction), used by the "bring X online" beats to bulk-load one store from
+ * another directly (CLAUDE.md §2):
+ *  - Postgres → GG  (phase 2): read by [MainframeProxyService], written by [GridGainService].
+ *  - GG → MariaDB   (phase 5): read by [GridGainService], written by [MariaDbService].
  *
- * This is an internal service-layer type, not a wire DTO. Money is in integer
- * cents and `source` is preserved from the row ('mf' for mainframe-originated)
- * so the bulk load doesn't masquerade mainframe data as GG-originated and echo
- * it back out through the gg-cache-publisher -> Postgres path.
+ * An internal service-layer type, not a wire DTO. Money is in integer cents and
+ * `source` is preserved from the row ('mf' / 'gg') so a bulk load doesn't
+ * masquerade rows as a different origin.
  */
-data class MainframeSnapshot(
+data class PaymentsSnapshot(
     val customers: List<CustomerRow>,
     val accounts: List<AccountRow>,
     val products: List<ProductRow>,

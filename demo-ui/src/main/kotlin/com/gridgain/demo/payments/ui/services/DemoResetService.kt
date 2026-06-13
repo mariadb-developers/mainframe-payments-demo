@@ -11,27 +11,28 @@ import org.slf4j.LoggerFactory
  * Side-effects in order:
  * 1. Generator OFF.
  * 2. Phase → 0.
- * 3. CDC feed PAUSE — pause the cdc-sink connector. With the sink paused, the
- *    Postgres reseed in step 6 buffers in Kafka instead of refilling GG, so GG
- *    starts the beat EMPTY. The presenter brings it online explicitly in phase 2
- *    (Bulk Load, then Unpause Event Feed). If Kafka Connect is unreachable this
- *    step fails-soft and the demo falls back to the old behaviour (CDC refills
- *    GG straight away), which is fine for a quick dev loop without the beat.
- * 4. GridGain: DELETE all rows.
- * 5. MariaDB analytics: TRUNCATE all rows.
- * 6. Postgres mainframe-proxy: TRUNCATE + reseed the curated opening state —
+ * 3. CDC feed PAUSE — pause the cdc-sink connector so the Postgres reseed buffers
+ *    in Kafka instead of refilling GG; GG starts the phase-2 beat EMPTY and the
+ *    presenter brings it online (Bulk Load → Unpause). Fails-soft if Connect is
+ *    unreachable (CDC then refills GG straight away — fine for a quick dev loop).
+ * 4. MariaDB feed PAUSE — pause the GG→MariaDB sink so MariaDB stays EMPTY for the
+ *    phase-5 beat (same pattern). Fails-soft / UNKNOWN until the toolkit deploys
+ *    that sink (BLOCKER); the phase-5 bulk-load works regardless.
+ * 5. GridGain: DELETE all rows.
+ * 6. MariaDB analytics: TRUNCATE all rows.
+ * 7. Postgres mainframe-proxy: TRUNCATE + reseed the curated opening state —
  *    5 customers + 5 zero-balance accounts + 10 products, and NO transactions
  *    (the menu lives in curated-transactions.yaml, not the table; see CLAUDE.md §10).
  *    Debezium publishes the reseed to the mainframe-to-gg.public.* topics where it
  *    waits, durably, for the feed to be unpaused.
  *
  * End state: Postgres holds the 20 curated rows ($0 balances, no transactions);
- * GG and MariaDB are empty; the inbound event feed is paused. GG (and, via the
- * gg-cache-publisher, MariaDB) come online during phase 2's beat — proving no
- * events are lost across the cutover.
+ * GG and MariaDB are empty; both event feeds are paused. GG comes online during
+ * phase 2's beat and MariaDB during phase 5's — each proving no events are lost
+ * across the cutover.
  *
- * Order matters: pausing the feed BEFORE the reseed is what keeps GG empty;
- * clearing GG/MariaDB before the reseed avoids wiping rows the pipeline is
+ * Order matters: pausing the feeds BEFORE the reseed is what keeps GG/MariaDB
+ * empty; clearing GG/MariaDB before the reseed avoids wiping rows the pipeline is
  * mid-flight on.
  */
 class DemoResetService(
@@ -40,7 +41,8 @@ class DemoResetService(
     private val gridGainService: GridGainService,
     private val phaseService: PhaseService,
     private val generatorService: GeneratorControlService,
-    private val cdcSinkControlService: CdcSinkControlService,
+    private val cdcSinkControlService: ConnectorControlService,
+    private val mariaSinkControlService: ConnectorControlService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -62,12 +64,13 @@ class DemoResetService(
             }
         }
 
-        step("generator stop")    { generatorService.setRate(GeneratorRate.OFF) }
-        step("phase to 0")        { phaseService.reset() }
-        step("cdc feed pause")    { cdcSinkControlService.pause() }
-        step("gridgain clear")    { gridGainService.reset() }
-        step("mariadb truncate")  { mariaDbService.reset() }
-        step("postgres reseed")   { mainframeService.reset() }
+        step("generator stop")     { generatorService.setRate(GeneratorRate.OFF) }
+        step("phase to 0")         { phaseService.reset() }
+        step("cdc feed pause")     { cdcSinkControlService.pause() }
+        step("mariadb feed pause") { mariaSinkControlService.pause() }
+        step("gridgain clear")     { gridGainService.reset() }
+        step("mariadb truncate")   { mariaDbService.reset() }
+        step("postgres reseed")    { mainframeService.reset() }
 
         return ResetSummary(steps = steps.map { (name, result) -> ResetStep(name, result) })
     }

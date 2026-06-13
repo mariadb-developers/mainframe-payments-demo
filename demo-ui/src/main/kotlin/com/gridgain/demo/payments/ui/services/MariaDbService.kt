@@ -74,6 +74,80 @@ class MariaDbService(config: UiConfig) : AutoCloseable {
         }
     }
 
+    /**
+     * Bulk-loads a GG snapshot into the MariaDB analytics tables — the "Bulk
+     * Load" half of the phase-5 GG→MariaDB beat (CLAUDE.md §2). Run while the
+     * GG→MariaDB sink is paused so it doesn't race the feed; upsert
+     * (INSERT … ON DUPLICATE KEY UPDATE) makes it idempotent, so the later
+     * Kafka backlog drains harmlessly over the same rows on resume.
+     *
+     * Inserts in FK-safe order (customer → product → account → transaction) to
+     * satisfy fk_account_customer / fk_tx_account / fk_tx_product. Returns the
+     * per-table row counts written.
+     */
+    fun bulkLoad(snapshot: PaymentsSnapshot): Map<String, Int> = ds.connection.use { c ->
+        c.autoCommit = false
+        try {
+            c.prepareStatement(
+                "INSERT INTO customer (customer_id, first_name, source) VALUES (?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE first_name = VALUES(first_name), source = VALUES(source)",
+            ).use { ps ->
+                snapshot.customers.forEach {
+                    ps.setLong(1, it.customerId); ps.setString(2, it.firstName); ps.setString(3, it.source); ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            c.prepareStatement(
+                "INSERT INTO product (product_id, name, price, source) VALUES (?, ?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), source = VALUES(source)",
+            ).use { ps ->
+                snapshot.products.forEach {
+                    ps.setLong(1, it.productId); ps.setString(2, it.name); ps.setLong(3, it.priceCents); ps.setString(4, it.source); ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            c.prepareStatement(
+                "INSERT INTO account (account_id, customer_id, balance, source) VALUES (?, ?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE customer_id = VALUES(customer_id), balance = VALUES(balance), source = VALUES(source)",
+            ).use { ps ->
+                snapshot.accounts.forEach {
+                    ps.setLong(1, it.accountId); ps.setLong(2, it.customerId); ps.setLong(3, it.balanceCents); ps.setString(4, it.source); ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            c.prepareStatement(
+                "INSERT INTO transaction (transaction_id, account_id, product_id, amount, type, occurred_at, source) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE account_id = VALUES(account_id), product_id = VALUES(product_id), " +
+                    "amount = VALUES(amount), type = VALUES(type), occurred_at = VALUES(occurred_at), source = VALUES(source)",
+            ).use { ps ->
+                snapshot.transactions.forEach {
+                    ps.setLong(1, it.transactionId)
+                    ps.setLong(2, it.accountId)
+                    if (it.productId == null) ps.setNull(3, java.sql.Types.BIGINT) else ps.setLong(3, it.productId)
+                    ps.setLong(4, it.amountCents)
+                    ps.setString(5, it.type)
+                    ps.setTimestamp(6, it.occurredAt)
+                    ps.setString(7, it.source)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            c.commit()
+        } catch (e: Exception) {
+            c.rollback()
+            throw e
+        } finally {
+            c.autoCommit = true
+        }
+        linkedMapOf(
+            "customer" to snapshot.customers.size,
+            "product" to snapshot.products.size,
+            "account" to snapshot.accounts.size,
+            "transaction" to snapshot.transactions.size,
+        )
+    }
+
     override fun close() {
         ds.close()
     }

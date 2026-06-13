@@ -60,6 +60,13 @@ export const mariaDbApi = {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
       return r.json() as Promise<AnalyticQueryResult>
     }),
+  // Phase-5 "bring MariaDB online" beat (CLAUDE.md §2): pause/resume the GG→MariaDB
+  // sink and bulk-load a GG snapshot directly into MariaDB. (Pause/resume is gated
+  // on the toolkit deploying that sink; bulk-load works now.)
+  feedState: () => getJson<CdcFeedStateResponse>('/api/mariadb-feed/state'),
+  pause: () => postJson<CdcFeedStateResponse>('/api/mariadb-feed/pause', {}),
+  resume: () => postJson<CdcFeedStateResponse>('/api/mariadb-feed/resume', {}),
+  bulkLoad: () => postJson<BulkLoadResult>('/api/mariadb-feed/bulk-load', {}),
 }
 
 export const phaseApi = {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { cdcApi, gridGainApi, phaseApi } from '@/api/client'
+import { cdcApi, gridGainApi, mariaDbApi, phaseApi } from '@/api/client'
 import { BringOnlineControls } from '@/components/BringOnlineControls'
 import { ConnectorTailers, useLatestCorrelationId } from '@/components/ConnectorTailers'
-import type { Lookups } from '@/components/ConnectorTailers'
+import type { AppliedState, Lookups } from '@/components/ConnectorTailers'
 import { GridGainPanel } from '@/components/GridGainPanel'
 import { LoadSlider } from '@/components/LoadSlider'
 import { MainframePanel } from '@/components/MainframePanel'
@@ -15,6 +15,8 @@ import type { TransactionResult } from '@/types/api'
 /**
  * Per CLAUDE.md §3 visibility table — what's revealed at each phase.
  * Phase 0 hides everything but the header; the demo opens at phase 1 in v1.
+ * Phases 5 and 6 are swapped vs. the original draft: MariaDB is revealed (and
+ * brought online, §2) BEFORE the load generator runs.
  */
 function visibility(phase: number) {
   return {
@@ -22,9 +24,9 @@ function visibility(phase: number) {
     ggPanel: phase >= 2,
     cdcTailer: phase >= 2,
     ggToPostgresTailer: phase >= 3,
-    ggToMariaTailer: phase >= 6,
-    mariaPanel: phase >= 6,
-    loadSlider: phase >= 5,
+    ggToMariaTailer: phase >= 5,
+    mariaPanel: phase >= 5,
+    loadSlider: phase >= 6,
   }
 }
 
@@ -43,6 +45,15 @@ export default function App() {
   const [bringOnlineBusy, setBringOnlineBusy] = useState(false)
   const [bringOnlineError, setBringOnlineError] = useState<string | null>(null)
   const [ggRefreshTick, setGgRefreshTick] = useState(0)
+
+  // Phase-5 "bring MariaDB online" beat (CLAUDE.md §2) — mirrors the MF→GG state
+  // above, for the GG→MariaDB sink. The Unpause half is gated on the toolkit
+  // deploying that sink; the Bulk Load half (GG→MariaDB direct) works now.
+  const [mariaFeedLive, setMariaFeedLive] = useState(false)
+  const [mariaLoaded, setMariaLoaded] = useState(false)
+  const [mariaBusy, setMariaBusy] = useState(false)
+  const [mariaError, setMariaError] = useState<string | null>(null)
+  const [mariaRefreshTick, setMariaRefreshTick] = useState(0)
 
   // id→name maps so the connector tailers can render "Raghu · PURCHASE $1349.99"
   // instead of "transaction key=...". Built from the GG customer/product/balance
@@ -84,6 +95,10 @@ export default function App() {
       .state()
       .then((s) => setFeedLive(s.state === 'LIVE'))
       .catch(() => {})
+    mariaDbApi
+      .feedState()
+      .then((s) => setMariaFeedLive(s.state === 'LIVE'))
+      .catch(() => {})
     void refreshLookups()
   }, [refreshLookups])
 
@@ -95,11 +110,16 @@ export default function App() {
   // only queued event ever shown is the in-flight transaction the presenter fires.
   useEffect(() => {
     if (phase === 2) cdcStream.clear()
+    if (phase === 5) ggToMariadbStream.clear()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
   const v = visibility(phase)
   const beatActive = phase === 2
+  const mariaBeatActive = phase === 5
+  // Two-tone styling for a beat window: queued while paused, applied once live.
+  const beatState = (active: boolean, live: boolean): AppliedState =>
+    !active ? 'normal' : live ? 'applied' : 'queued'
   const onExecuted = (result: TransactionResult) => {
     setHighlightedCorrelationId(result.correlation_id)
     setUserExecuteCount((n) => n + 1)
@@ -113,8 +133,11 @@ export default function App() {
     setFeedLive(false)
     setGgLoaded(false)
     setBringOnlineError(null)
-    // Start the beat with a clean Mainframe→GG window — drop the reseed burst
-    // that fills Kafka so only the presenter's in-flight transaction shows.
+    setMariaFeedLive(false)
+    setMariaLoaded(false)
+    setMariaError(null)
+    // Start the beats with clean windows — drop the reseed burst that fills Kafka
+    // so only the presenter's in-flight transactions show.
     cdcStream.clear()
     ggToPostgresStream.clear()
     ggToMariadbStream.clear()
@@ -155,14 +178,46 @@ export default function App() {
     }
   }
 
+  // Phase-5 MariaDB beat — mirrors onBulkLoad/onUnpause for the GG→MariaDB feed.
+  const onMariaBulkLoad = async () => {
+    setMariaBusy(true)
+    setMariaError(null)
+    try {
+      await mariaDbApi.bulkLoad()
+      setMariaLoaded(true)
+      setMariaRefreshTick((n) => n + 1)
+    } catch (e) {
+      setMariaError(`Bulk Load failed — ${(e as Error).message}`)
+    } finally {
+      setMariaBusy(false)
+    }
+  }
+
+  const onMariaUnpause = async () => {
+    setMariaBusy(true)
+    setMariaError(null)
+    try {
+      await mariaDbApi.resume()
+      setMariaFeedLive(true)
+      setMariaRefreshTick((n) => n + 1)
+      window.setTimeout(() => setMariaRefreshTick((n) => n + 1), 1500)
+      window.setTimeout(() => setMariaRefreshTick((n) => n + 1), 3500)
+    } catch (e) {
+      // Until the toolkit deploys the GG→MariaDB sink this 404s — surfaced on-screen.
+      setMariaError(`Unpause Event Feed failed — ${(e as Error).message}`)
+    } finally {
+      setMariaBusy(false)
+    }
+  }
+
   // MainframePanel reads Postgres; refresh when GG→Postgres CDC writes land there.
   // GridGainPanel reads GG; refresh when the mainframe→GG CDC writes land there,
   // plus an explicit tick after Bulk Load / Unpause (see ggRefreshTick above).
-  // MariaDbPanel runs queries on user click — refresh on every gg-to-mariadb event
-  // so the row counts re-run themselves while a load run is active.
+  // MariaDbPanel runs queries on user click — refresh on every gg-to-mariadb event,
+  // plus an explicit tick after the phase-5 Bulk Load / Unpause (mariaRefreshTick).
   const mainframeReloadKey = userExecuteCount + ggToPostgresStream.events.length
   const ggReloadKey = userExecuteCount + cdcStream.events.length + ggRefreshTick
-  const mariaReloadKey = userExecuteCount + ggToMariadbStream.events.length
+  const mariaReloadKey = userExecuteCount + ggToMariadbStream.events.length + mariaRefreshTick
 
   return (
     <div className="h-full grid grid-rows-[auto_1fr] bg-surface-950">
@@ -192,15 +247,13 @@ export default function App() {
 
         <ConnectorTailers
           highlightedCorrelationId={highlightedCorrelationId}
-          feedLive={feedLive}
-          beatActive={beatActive}
           lookups={lookups}
           sources={[
             {
               id: 'cdc',
               label: 'Mainframe → GG',
               visible: v.cdcTailer,
-              appliedStyling: true,
+              appliedState: beatState(beatActive, feedLive),
               topControls: beatActive ? (
                 <BringOnlineControls
                   ggLoaded={ggLoaded}
@@ -213,7 +266,22 @@ export default function App() {
               ) : undefined,
             },
             { id: 'gg-to-postgres', label: 'GG → Mainframe', visible: v.ggToPostgresTailer },
-            { id: 'gg-to-mariadb', label: 'GG → MariaDB', visible: v.ggToMariaTailer },
+            {
+              id: 'gg-to-mariadb',
+              label: 'GG → MariaDB',
+              visible: v.ggToMariaTailer,
+              appliedState: beatState(mariaBeatActive, mariaFeedLive),
+              topControls: mariaBeatActive ? (
+                <BringOnlineControls
+                  ggLoaded={mariaLoaded}
+                  feedLive={mariaFeedLive}
+                  busy={mariaBusy}
+                  error={mariaError}
+                  onBulkLoad={onMariaBulkLoad}
+                  onUnpause={onMariaUnpause}
+                />
+              ) : undefined,
+            },
           ]}
           streams={{
             'gg-to-postgres': ggToPostgresStream,

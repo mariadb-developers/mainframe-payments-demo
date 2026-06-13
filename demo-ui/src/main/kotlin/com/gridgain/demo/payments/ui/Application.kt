@@ -14,11 +14,12 @@ import com.gridgain.demo.payments.ui.routes.mariaDbRoutes
 import com.gridgain.demo.payments.ui.routes.phaseRoutes
 import com.gridgain.demo.payments.ui.routes.tailerRoutes
 import com.gridgain.demo.payments.ui.services.BulkLoadService
-import com.gridgain.demo.payments.ui.services.CdcSinkControlService
+import com.gridgain.demo.payments.ui.services.ConnectorControlService
 import com.gridgain.demo.payments.ui.services.DemoResetService
 import com.gridgain.demo.payments.ui.services.GeneratorControlService
 import com.gridgain.demo.payments.ui.services.GridGainService
 import com.gridgain.demo.payments.ui.services.MainframeProxyService
+import com.gridgain.demo.payments.ui.services.MariaDbBulkLoadService
 import com.gridgain.demo.payments.ui.services.MariaDbService
 import com.gridgain.demo.payments.ui.services.PhaseService
 import com.gridgain.demo.payments.ui.tailer.KafkaTailerTap
@@ -104,8 +105,10 @@ fun Application.configureRouting(config: UiConfig) {
     val gridGainService = GridGainService(config)
     val phaseService = PhaseService()
     val generatorService = GeneratorControlService(config)
-    val cdcSinkControlService = CdcSinkControlService(config)
+    val cdcSinkControlService = ConnectorControlService(config.kafkaConnectUrl, config.cdcSinkConnectorName)
+    val mariaSinkControlService = ConnectorControlService(config.kafkaConnectUrl, config.mariaDbSinkConnectorName)
     val bulkLoadService = BulkLoadService(mainframeService, gridGainService)
+    val mariaBulkLoadService = MariaDbBulkLoadService(gridGainService, mariaDbService)
     val resetService = DemoResetService(
         mainframeService = mainframeService,
         mariaDbService = mariaDbService,
@@ -113,6 +116,7 @@ fun Application.configureRouting(config: UiConfig) {
         phaseService = phaseService,
         generatorService = generatorService,
         cdcSinkControlService = cdcSinkControlService,
+        mariaSinkControlService = mariaSinkControlService,
     )
     // Three tailer taps, one per UI panel — each reads from Kafka directly so
     // the panel reflects exactly what the corresponding sink applies:
@@ -159,7 +163,7 @@ fun Application.configureRouting(config: UiConfig) {
             phaseRoutes(phaseService)
             tailerRoutes(tailerService)
             generatorRoutes(generatorService)
-            bringOnlineRoutes(cdcSinkControlService, bulkLoadService)
+            bringOnlineRoutes(cdcSinkControlService, bulkLoadService, mariaSinkControlService, mariaBulkLoadService)
             demoRoutes(resetService)
             get("/health") {
                 call.respond(mapOf("status" to "ok"))

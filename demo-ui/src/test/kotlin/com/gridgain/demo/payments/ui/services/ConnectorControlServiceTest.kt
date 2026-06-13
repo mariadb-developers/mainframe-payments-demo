@@ -8,10 +8,10 @@ import kotlin.test.assertEquals
  * before the event feed is unpaused (CLAUDE.md §2 phase 2). The demo UI decides
  * whether the feed is paused or live by reading the Kafka Connect
  * `/connectors/{name}/status` response, so the parser that turns that JSON into
- * a [CdcFeedState] is the one piece of real branching logic here — these tests
+ * a [FeedState] is the one piece of real branching logic here — these tests
  * pin it.
  */
-class CdcSinkControlServiceTest {
+class ConnectorControlServiceTest {
 
     @Test
     fun `paused connector reports PAUSED`() {
@@ -19,7 +19,7 @@ class CdcSinkControlServiceTest {
             {"name":"cdc-sink","connector":{"state":"PAUSED","worker_id":"10.0.0.1:8083"},
              "tasks":[{"id":0,"state":"PAUSED","worker_id":"10.0.0.1:8083"}],"type":"sink"}
         """.trimIndent()
-        assertEquals(CdcFeedState.PAUSED, CdcSinkControlService.parseFeedState(json))
+        assertEquals(FeedState.PAUSED, ConnectorControlService.parseFeedState(json))
     }
 
     @Test
@@ -28,7 +28,7 @@ class CdcSinkControlServiceTest {
             {"name":"cdc-sink","connector":{"state":"RUNNING","worker_id":"10.0.0.1:8083"},
              "tasks":[{"id":0,"state":"RUNNING","worker_id":"10.0.0.1:8083"}],"type":"sink"}
         """.trimIndent()
-        assertEquals(CdcFeedState.LIVE, CdcSinkControlService.parseFeedState(json))
+        assertEquals(FeedState.LIVE, ConnectorControlService.parseFeedState(json))
     }
 
     @Test
@@ -39,13 +39,13 @@ class CdcSinkControlServiceTest {
             {"name":"cdc-sink","connector":{"state":"PAUSED","worker_id":"10.0.0.1:8083"},
              "tasks":[{"id":0,"state":"RUNNING","worker_id":"10.0.0.1:8083"}],"type":"sink"}
         """.trimIndent()
-        assertEquals(CdcFeedState.PAUSED, CdcSinkControlService.parseFeedState(json))
+        assertEquals(FeedState.PAUSED, ConnectorControlService.parseFeedState(json))
     }
 
     @Test
     fun `unparseable or stateless responses report UNKNOWN`() {
-        assertEquals(CdcFeedState.UNKNOWN, CdcSinkControlService.parseFeedState("not json"))
-        assertEquals(CdcFeedState.UNKNOWN, CdcSinkControlService.parseFeedState("{}"))
-        assertEquals(CdcFeedState.UNKNOWN, CdcSinkControlService.parseFeedState("""{"connector":{"state":"FROBNICATED"}}"""))
+        assertEquals(FeedState.UNKNOWN, ConnectorControlService.parseFeedState("not json"))
+        assertEquals(FeedState.UNKNOWN, ConnectorControlService.parseFeedState("{}"))
+        assertEquals(FeedState.UNKNOWN, ConnectorControlService.parseFeedState("""{"connector":{"state":"FROBNICATED"}}"""))
     }
 }

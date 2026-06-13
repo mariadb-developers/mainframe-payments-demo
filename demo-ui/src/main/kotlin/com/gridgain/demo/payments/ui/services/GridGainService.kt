@@ -169,7 +169,7 @@ class GridGainService(
      *
      * Returns the per-table row counts written.
      */
-    fun bulkLoad(snapshot: MainframeSnapshot): Map<String, Int> {
+    fun bulkLoad(snapshot: PaymentsSnapshot): Map<String, Int> {
         connect() ?: throw IllegalStateException(
             "GridGain cluster not reachable. Start a port-forward to the GG client port and retry.",
         )
@@ -207,6 +207,55 @@ class GridGainService(
             "Product" to snapshot.products.size,
             "Transaction" to snapshot.transactions.size,
         )
+    }
+
+    /**
+     * Reads a full snapshot of the GG payments tables — the "Bulk Load" source
+     * for the phase-5 GG→MariaDB beat (CLAUDE.md §2). `source` is preserved per
+     * row so MariaDB ends up with the correct 'mf'/'gg' origin on each row.
+     */
+    fun readSnapshot(): PaymentsSnapshot {
+        connect() ?: throw IllegalStateException(
+            "GridGain cluster not reachable. Start a port-forward to the GG client port and retry.",
+        )
+        val customers = runQuery("SELECT customer_id, first_name, source FROM Customer ORDER BY customer_id").map {
+            PaymentsSnapshot.CustomerRow(
+                customerId = (it[0] as Number).toLong(),
+                firstName = it[1]?.toString() ?: "",
+                source = it[2]?.toString() ?: "gg",
+            )
+        }
+        val accounts = runQuery("SELECT account_id, customer_id, balance, source FROM Account ORDER BY account_id").map {
+            PaymentsSnapshot.AccountRow(
+                accountId = (it[0] as Number).toLong(),
+                customerId = (it[1] as Number).toLong(),
+                balanceCents = (it[2] as Number).toLong(),
+                source = it[3]?.toString() ?: "gg",
+            )
+        }
+        val products = runQuery("SELECT product_id, name, price, source FROM Product ORDER BY product_id").map {
+            PaymentsSnapshot.ProductRow(
+                productId = (it[0] as Number).toLong(),
+                name = it[1]?.toString() ?: "",
+                priceCents = (it[2] as Number).toLong(),
+                source = it[3]?.toString() ?: "gg",
+            )
+        }
+        val transactions = runQuery(
+            "SELECT transaction_id, account_id, product_id, amount, type, occurred_at, source " +
+                "FROM Transaction ORDER BY transaction_id",
+        ).map {
+            PaymentsSnapshot.TransactionRow(
+                transactionId = (it[0] as Number).toLong(),
+                accountId = (it[1] as Number).toLong(),
+                productId = (it[2] as? Number)?.toLong(),
+                amountCents = (it[3] as Number).toLong(),
+                type = it[4]?.toString() ?: "",
+                occurredAt = (it[5] as? Timestamp) ?: Timestamp(System.currentTimeMillis()),
+                source = it[6]?.toString() ?: "gg",
+            )
+        }
+        return PaymentsSnapshot(customers, accounts, products, transactions)
     }
 
     private fun runQuery(sql: String, vararg args: Any?): List<List<Any?>> {

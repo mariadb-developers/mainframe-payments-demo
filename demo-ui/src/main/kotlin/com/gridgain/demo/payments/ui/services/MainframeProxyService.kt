@@ -72,7 +72,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
      * load into GG (CLAUDE.md §2). `source` is preserved per row so GG-side rows
      * stay 'mf'-stamped and don't get re-published outbound as GG-originated.
      */
-    fun readSnapshot(): MainframeSnapshot = ds.connection.use { c ->
+    fun readSnapshot(): PaymentsSnapshot = ds.connection.use { c ->
         val customers = c.prepareStatement(
             "SELECT customer_id, first_name, source FROM customer ORDER BY customer_id",
         ).use { ps ->
@@ -80,7 +80,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
                 buildList {
                     while (rs.next()) {
                         add(
-                            MainframeSnapshot.CustomerRow(
+                            PaymentsSnapshot.CustomerRow(
                                 customerId = rs.getLong("customer_id"),
                                 firstName = rs.getString("first_name"),
                                 source = rs.getString("source"),
@@ -97,7 +97,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
                 buildList {
                     while (rs.next()) {
                         add(
-                            MainframeSnapshot.AccountRow(
+                            PaymentsSnapshot.AccountRow(
                                 accountId = rs.getLong("account_id"),
                                 customerId = rs.getLong("customer_id"),
                                 balanceCents = rs.getLong("balance"),
@@ -115,7 +115,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
                 buildList {
                     while (rs.next()) {
                         add(
-                            MainframeSnapshot.ProductRow(
+                            PaymentsSnapshot.ProductRow(
                                 productId = rs.getLong("product_id"),
                                 name = rs.getString("name"),
                                 priceCents = rs.getLong("price"),
@@ -135,7 +135,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
                     while (rs.next()) {
                         val productId = rs.getLong("product_id").let { if (rs.wasNull()) null else it }
                         add(
-                            MainframeSnapshot.TransactionRow(
+                            PaymentsSnapshot.TransactionRow(
                                 transactionId = rs.getLong("transaction_id"),
                                 accountId = rs.getLong("account_id"),
                                 productId = productId,
@@ -149,7 +149,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
                 }
             }
         }
-        MainframeSnapshot(customers, accounts, products, transactions)
+        PaymentsSnapshot(customers, accounts, products, transactions)
     }
 
     /**

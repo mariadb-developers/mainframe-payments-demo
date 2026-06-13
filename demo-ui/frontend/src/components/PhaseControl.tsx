@@ -11,8 +11,8 @@ const PHASE_LABELS = [
   '2 · Reveal GridGain',
   '3 · GG-side transaction',
   '4 · Mainframe-side transaction',
-  '5 · Load generator',
-  '6 · Reveal MariaDB',
+  '5 · Reveal MariaDB',
+  '6 · Load generator',
 ]
 
 export function PhaseControl({ phase, onChange }: Props) {

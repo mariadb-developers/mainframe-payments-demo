@@ -17,6 +17,7 @@ data class UiConfig(
     val cdcTopicPrefix: String,
     val kafkaConnectUrl: String,
     val cdcSinkConnectorName: String,
+    val mariaDbSinkConnectorName: String,
     val projectDirectory: Path,
 ) {
     companion object {
@@ -57,6 +58,11 @@ data class UiConfig(
                 // bare `cdc-sink`). In dev, port-forward the Connect service (rest_port 8083) here.
                 kafkaConnectUrl = env("PAYMENTS_KAFKA_CONNECT_URL", "http://localhost:8083"),
                 cdcSinkConnectorName = env("PAYMENTS_CDC_SINK_CONNECTOR", "mainframe-to-gg-cdc-sink"),
+                // The outbound GG→MariaDB JDBC sink, paused/resumed for the phase-5 beat. NOT yet
+                // deployed by the toolkit (tracked as a BLOCKER) — until it is, pause/resume 404s and
+                // the demo surfaces that. Default follows the toolkit's "<entry>-<connectors[].name>"
+                // convention; confirm the actual name when the sink lands and override here if needed.
+                mariaDbSinkConnectorName = env("PAYMENTS_MARIADB_SINK_CONNECTOR", "mainframe-to-gg-gg-to-mariadb"),
                 projectDirectory = projectDir,
             )
         }

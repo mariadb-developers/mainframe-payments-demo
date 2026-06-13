@@ -7,18 +7,21 @@ export interface TailerStream {
   connected: boolean
 }
 
-/** One tailer column. `appliedStyling` marks the Mainframe→GG window, whose rows
- *  switch between queued (white) and applied (struck-through) during the phase-2
- *  bring-online beat; `topControls` renders above that column's window. */
+/** Row styling for a window during a bring-online beat: `queued` = buffered in
+ *  Kafka (bright white), `applied` = drained to the target (dimmed + struck
+ *  through), `normal` = steady-state colored tokens outside any beat. */
+export type AppliedState = 'normal' | 'queued' | 'applied'
+
+/** One tailer column. `appliedState` (computed by the App from the relevant
+ *  feed's pause/live state during its beat) drives the queued/applied styling;
+ *  `topControls` renders the bring-online buttons above that column's window. */
 export interface TailerSource {
   id: string
   label: string
   visible: boolean
-  appliedStyling?: boolean
+  appliedState?: AppliedState
   topControls?: ReactNode
 }
-
-type AppliedState = 'normal' | 'queued' | 'applied'
 
 /** id→name maps so the tailer can show audience-friendly text (customer/product
  *  names) instead of raw foreign keys. Sourced from the GG customer/product/
@@ -76,10 +79,6 @@ interface Props {
   sources: TailerSource[]
   streams: Record<string, TailerStream>
   highlightedCorrelationId: string | null
-  // Phase-2 beat (CLAUDE.md §2): whether the cdc-sink is currently applying
-  // events, and whether the beat's two-tone styling is active at all.
-  feedLive: boolean
-  beatActive: boolean
   // id→name maps for audience-friendly event text; defaults to empty (ids only).
   lookups?: Lookups
 }
@@ -88,8 +87,6 @@ export function ConnectorTailers({
   sources,
   streams,
   highlightedCorrelationId,
-  feedLive,
-  beatActive,
   lookups = EMPTY_LOOKUPS,
 }: Props) {
   const gridCols = { gridTemplateColumns: `repeat(${sources.length}, minmax(0, 1fr))` }
@@ -113,20 +110,13 @@ export function ConnectorTailers({
             visible={s.visible}
             stream={streams[s.id]}
             highlightedCorrelationId={highlightedCorrelationId}
-            appliedState={appliedStateFor(s, beatActive, feedLive)}
+            appliedState={s.appliedState ?? 'normal'}
             lookups={lookups}
           />
         ))}
       </div>
     </div>
   )
-}
-
-/** The row styling for a source: only the bring-online window (appliedStyling)
- *  is two-tone, and only while the beat is active; everything else is normal. */
-function appliedStateFor(source: TailerSource, beatActive: boolean, feedLive: boolean): AppliedState {
-  if (!source.appliedStyling || !beatActive) return 'normal'
-  return feedLive ? 'applied' : 'queued'
 }
 
 function SingleTailer({
