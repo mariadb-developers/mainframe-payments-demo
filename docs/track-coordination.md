@@ -233,3 +233,22 @@ This file is the **single source of truth** for cross-track communication. Both 
   connects but silently never fetches (this is what left all three connector tailers empty). Track B:
   please keep an off-cluster-reachable EXTERNAL listener on the Kafka deployment. Dev bootstrap is
   overridable via `PAYMENTS_KAFKA_BOOTSTRAP`; `scripts/dev-port-forwards.sh` forwards `:9094`.
+- **2026-06-13 · BLOCKER (A→B)** — The **outbound GG→Postgres / GG→MariaDB JDBC sink connectors are
+  not deployed**, so the demo's write-through fan-out (CLAUDE.md §7) doesn't happen: a phase-3 GG
+  transaction is published to `from-gg.public.*` (visible in the tailer) but never lands in Postgres
+  or MariaDB. Verified: only `mainframe-to-gg-{source,gg-cache-publisher,cdc-sink}` are registered;
+  Postgres has **0 rows with `source='gg'`**. **Blocks phase 3 (GG→MF/MariaDB write-through) and
+  phase 6 (MariaDB analytics panel).** Inbound (MF→GG) works.
+  The `io.debezium.connector.jdbc.JdbcSinkConnector` plugin **is** in the Connect image, so this is
+  config/registration, not an image change. Track B (`cdc_connectors` element) should generate + deploy:
+    - **gg-to-postgres**: `topics=from-gg.public.{account,transaction,customer,product}` → Postgres
+      mainframe-proxy. Consume `from-gg.*` ONLY (GG-originated) to avoid a loop back to the source.
+    - **gg-to-mariadb**: `topics=from-(gg|mf).public.*` → MariaDB analytics (everything).
+    - Suggested config: `insert.mode=upsert`, `primary.key.mode=record_key` (publisher sets the Kafka
+      key to `{<table>_id: <val>}`), `delete.enabled=true` (handle op=d), topic→table name mapping
+      stripping the `from-(gg|mf).public.` prefix, connection creds from the per-DB auth secrets.
+    - **MariaDB FK ordering** (re the 2026-06-11 QUESTION): the analytics schema's FKs will reject
+      out-of-order events (a transaction arriving before its account). Decide: drop FKs on the
+      analytics schema, apply in dependency order, or upsert/retry.
+  A REST-registered stopgap was explicitly declined in favour of the toolkit doing this properly so it
+  survives teardown/redeploy.
