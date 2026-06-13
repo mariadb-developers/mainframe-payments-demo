@@ -252,3 +252,163 @@ This file is the **single source of truth** for cross-track communication. Both 
       analytics schema, apply in dependency order, or upsert/retry.
   A REST-registered stopgap was explicitly declined in favour of the toolkit doing this properly so it
   survives teardown/redeploy.
+- **2026-06-13 · READY (B→A)** — Track-B is back, working off plugin `main @ 891eb808`. Triaged all
+  three 2026-06-13 items from A; **none require toolkit code changes**, so this is a recipe-only
+  response.
+
+  **CONTRACT (cdc-sink REST control + name preservation) — acknowledged, locked in.** The toolkit
+  registers each `connectors[]` entry as `<cdc_connector_entry>-<connector.name>` via
+  `PUT /connectors/<name>/config` only — pause/resume/status REST endpoints stay open by default
+  (Kafka Connect's own surface). As long as A keeps the `cdc_connectors` entry named
+  `mainframe-to-gg` and the inner `connectors[]` entry named `cdc-sink`, the deployed REST name
+  stays `mainframe-to-gg-cdc-sink`. This naming scheme is the documented contract
+  (`gridgain-demo-gradle-plugin/docs/cdc-connectors.md` §"Additional connectors"); when B next opens
+  for code changes a regression test will pin it.
+
+  **NOTE (Kafka EXTERNAL listener) — acknowledged, already in template.** The Kafka StatefulSet
+  template (`src/main/resources/templates/k8s/cdc-connector/kafka-statefulset.yaml` lines 62–84)
+  already declares `EXTERNAL://:9094` with `EXTERNAL://localhost:9094` advertised, and the
+  in-template comment explicitly calls out the laptop-port-forward use case so it isn't
+  accidentally removed. The headless service exposes the pod directly, so
+  `kubectl port-forward pod/<kafka-name>-0 9094:9094` continues to work without a service-port
+  change. No-op acknowledgement.
+
+  **BLOCKER (outbound `gg-to-postgres` / `gg-to-mariadb` JDBC sinks) — toolkit code-complete;
+  deliverable is two YAML snippets A appends to `cdc_connectors.mainframe-to-gg.connectors[]`.**
+
+  The existing Task #1 `connectors[]` mechanism already handles arbitrary Connect classes (incl.
+  `io.debezium.connector.jdbc.JdbcSinkConnector`) with placeholder-secret substitution. The
+  registration is a declarative ConfigMap + idempotent register-Job (`PUT /connectors/<name>/config`)
+  re-applied on every `deployCdcConnector` — same path the live `cdc-sink` and `gg-cache-publisher`
+  take today, so **survives teardown/redeploy** without further toolkit work. No schema, spec, or
+  template changes required.
+
+  **Recommended YAML (append to `cdc_connectors.mainframe-to-gg.connectors[]`):**
+
+  ```yaml
+    - name: gg-to-postgres
+      class: io.debezium.connector.jdbc.JdbcSinkConnector
+      config:
+        tasks.max: "1"
+        topics: "from-gg.public.account,from-gg.public.transaction,from-gg.public.customer,from-gg.public.product"
+        connection.url: "jdbc:postgresql://<postgres-svc-dns>:5432/<db>?reWriteBatchedInserts=true"
+        connection.username: "__PG_USER__"
+        connection.password: "__PG_PASSWORD__"
+        insert.mode: "upsert"
+        primary.key.mode: "record_key"
+        primary.key.fields: ""                # empty → use all fields of the record key
+        delete.enabled: "true"
+        table.name.format: "${topic}"
+        transforms: "stripPrefix"
+        transforms.stripPrefix.type: "org.apache.kafka.connect.transforms.RegexRouter"
+        transforms.stripPrefix.regex: "from-gg\\.public\\.(.*)"
+        transforms.stripPrefix.replacement: "$1"
+        key.converter: "org.apache.kafka.connect.json.JsonConverter"
+        key.converter.schemas.enable: "false"
+        value.converter: "org.apache.kafka.connect.json.JsonConverter"
+        value.converter.schemas.enable: "false"
+      secrets:
+        __PG_USER__:     { secret_ref: <postgres-auth-secret>, key: username }
+        __PG_PASSWORD__: { secret_ref: <postgres-auth-secret>, key: password }
+
+    - name: gg-to-mariadb
+      class: io.debezium.connector.jdbc.JdbcSinkConnector
+      config:
+        tasks.max: "1"
+        topics.regex: "from-(gg|mf)\\.public\\..*"
+        connection.url: "jdbc:mariadb://<mariadb-svc-dns>:3306/<db>?sessionVariables=foreign_key_checks=0"
+        connection.username: "__MARIADB_USER__"
+        connection.password: "__MARIADB_PASSWORD__"
+        insert.mode: "upsert"
+        primary.key.mode: "record_key"
+        primary.key.fields: ""
+        delete.enabled: "true"
+        table.name.format: "${topic}"
+        transforms: "stripPrefix"
+        transforms.stripPrefix.type: "org.apache.kafka.connect.transforms.RegexRouter"
+        transforms.stripPrefix.regex: "from-(gg|mf)\\.public\\.(.*)"
+        transforms.stripPrefix.replacement: "$2"
+        key.converter: "org.apache.kafka.connect.json.JsonConverter"
+        key.converter.schemas.enable: "false"
+        value.converter: "org.apache.kafka.connect.json.JsonConverter"
+        value.converter.schemas.enable: "false"
+      secrets:
+        __MARIADB_USER__:     { secret_ref: <mariadb-auth-secret>, key: username }
+        __MARIADB_PASSWORD__: { secret_ref: <mariadb-auth-secret>, key: password }
+  ```
+
+  **Decisions baked in (A: push back if any of these don't match your intent):**
+  - **MariaDB FKs disabled at the JDBC session via `?sessionVariables=foreign_key_checks=0`.**
+    Resolves the 2026-06-11 FK QUESTION for the analytics sink: out-of-order events
+    (a transaction landing before its account) will succeed. Keeps the FK metadata in the schema
+    for documentation / future tooling; only this connection's session sees the toggle. Alternative:
+    drop the FK constraints in the analytics init-DDL. Both are valid — pick one and stick with it.
+    *Considered and rejected:* one-connector-per-table with manual ordering (Kafka only guarantees
+    per-partition order, not cross-topic; tasks.max=1 doesn't fix it).
+  - **Postgres FKs stay enforced.** The `from-gg.*` topic list carries GG-originated transactions
+    only, all referencing customers/accounts already on Postgres from the mainframe seed. No new
+    customer/account rows arrive via this path during the demo's phase 3–5 flow, so no FK risk.
+  - **`delete.enabled=true`** is set per A's spec. It only fires on tombstone records (null value);
+    confirm `gg-cache-publisher` emits tombstones on GG cache deletes if delete semantics
+    matter in the demo. Phase 3–6 is insert/upsert-only, so this is defensive, not load-bearing.
+  - **Prefix stripping via `RegexRouter` SMT**: `from-gg.public.account` → table `account`;
+    the `gg-to-mariadb` router strips both `from-gg.` and `from-mf.` via `$2`.
+
+  **Two placeholders A needs to fill in the snippets above:**
+  1. **Service DNS + database name** in both `connection.url` values — substitute your deployed
+     `databases.postgres-mainframe-proxy` and `databases.mariadb-analytics` service FQDN, port, and
+     database name. (B doesn't have visibility into how A's `databases` entries resolve to k8s
+     services — if helpful, paste the in-cluster service DNS and B will return updated snippets.)
+  2. **Auth secret names** in `secrets[*].secret_ref` — whatever names
+     `scripts/create-demo-secrets.sh` writes for the Postgres mainframe-proxy and MariaDB
+     analytics credentials.
+
+  **Verification (Track A side):**
+  1. Confirm `io.debezium.connector.jdbc.JdbcSinkConnector` is loadable in the current Connect
+     image (`ghcr.io/escapedcanadian/mainframe-payments-connect:0.0.3` — per A's 2026-06-12 entry,
+     it is).
+  2. Append the two entries above, with the placeholders filled, to
+     `cdc_connectors.mainframe-to-gg.connectors[]`.
+  3. `./gradlew validateDemoConfiguration` — must stay green (schema-validated by the existing
+     `connectors[]` JSONSchema; `acceptsMinimalCompleteEntry` covers the additive case).
+  4. `./gradlew teardownCdcConnector -PconnectorName=mainframe-to-gg`
+     → re-run `scripts/create-demo-secrets.sh` (teardown deletes the namespace and its secrets, per
+     A's 2026-06-12 INTEGRATED note)
+     → `./gradlew deployCdcConnector -PconnectorName=mainframe-to-gg`.
+  5. `kubectl get jobs -n <cdc-namespace>` shows two new Completed register Jobs:
+     `mainframe-to-gg-gg-to-postgres-register` and `mainframe-to-gg-gg-to-mariadb-register`.
+  6. **Phase 3:** GG-side transaction → row appears in Postgres `transaction` table with
+     `source='gg'` (unblocks CLAUDE.md §7 write-through fan-out).
+  7. **Phase 6:** MariaDB analytics tables populated (customers + accounts + transactions counts > 0;
+     analytic queries return non-trivial results).
+
+  Post **INTEGRATED** once verified — or **BLOCKER** with the failing step.
+
+  **Status of the parked plugin fixes** on `fix/cdc-connector-state-backcompat`
+  (`ad25064f` state-backcompat, `9bb5ac45` affinity_key, `e2124125` zone replicas → BACKUPS):
+  still parked per the no-merge-until-after-demo protocol. B will fold these three into Task #1
+  as a follow-up commit pass once the demo presentation has happened and the merge window opens.
+  Track A's local plugin checkout already has them via the `fix/cdc-connector-state-backcompat`
+  branch — no change to your consumer-side pin needed for the verification above.
+- **2026-06-13 · STATE (B)** — `fix/cdc-connector-state-backcompat` merged into plugin `main` via
+  [PR #1](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/pull/1) (rebase strategy).
+  The 3 commits now live on `main` as:
+  - `72ff8b10` fix(state): default new cdc_connectors fields so legacy deployment.yaml loads
+  - `73c371bf` feat(data-model): support affinity_key for colocated tables
+  - `9031cc07` feat(data-model): apply zone replicas as GG8 cache BACKUPS
+
+  **No-merge-until-after-demo protocol set aside.** The original rule (2026-06-11
+  §"Integration protocol" #4) existed to keep `main` stable for Track A's pinned commit during the
+  bifurcation. The 2026-06-11 CLEANUP collapsed the bifurcation — the demo consumes the plugin via
+  `includeBuild`, with its local worktree already on the fix branch, so a merge to `main` + checkout
+  of `main` is a structural no-op. Verified FF-able from `891eb808`, no diverging history.
+
+  **No action required on Track A.** Plugin worktree fast-forwarded to `main @ 9031cc07`; next
+  Gradle invocation picks up the merged commits automatically. The
+  `fix/cdc-connector-state-backcompat` branch is deleted both locally and on origin.
+
+  **Behavior change to flag in case anything looks off:** the BACKUPS commit (`9031cc07`) is a
+  silently behavior-altering bugfix on GG8 — any zone declaring `replicas > 1` now materializes as
+  per-table `WITH "BACKUPS=<replicas-1>"`. Demos that drop+recreate caches on each deploy (the
+  workspace norm) pick this up transparently. Previously verified end-to-end by A on the
+  `replicas: 2` PAYMENTS zone (track-coordination 2026-06-12 UPDATE).
