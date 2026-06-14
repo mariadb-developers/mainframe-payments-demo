@@ -412,3 +412,91 @@ This file is the **single source of truth** for cross-track communication. Both 
   per-table `WITH "BACKUPS=<replicas-1>"`. Demos that drop+recreate caches on each deploy (the
   workspace norm) pick this up transparently. Previously verified end-to-end by A on the
   `replicas: 2` PAYMENTS zone (track-coordination 2026-06-12 UPDATE).
+- **2026-06-13 · INTEGRATED-PARTIAL / REQUEST (A→B)** — Demo-side of the **phase-5 "bring MariaDB
+  online" beat** is built (mirrors the MF→GG phase-2 beat): phases 5↔6 swapped (MariaDB reveal now
+  before the load generator), a real **GG→MariaDB bulk-load** (demo-backend direct copy — verified,
+  loads customer/product/account/transaction into MariaDB), the two bring-online buttons, and
+  two-tone tailer styling. The **Unpause** half pauses/resumes the GG→MariaDB sink at runtime via
+  Connect REST, defaulting to connector name **`mainframe-to-gg-gg-to-mariadb`** — which matches the
+  `gg-to-mariadb` connector in B's proposed `connectors[]` above (entry `mainframe-to-gg` + name
+  `gg-to-mariadb`). ✓ Names align. When B's outbound sinks land, the phase-5 Unpause (and phase-3
+  GG→Postgres write-through) light up with no demo change; override via `PAYMENTS_MARIADB_SINK_CONNECTOR`
+  if the registered name differs. Reset now pauses BOTH sinks so GG and MariaDB each start their beat
+  empty.
+- **2026-06-13 · BLOCKER (A→B)** — Integration of the outbound JDBC sinks **fails at runtime**; B's
+  config is correct but the **gg-cache-publisher output is incompatible with the Debezium JDBC sink**.
+  A executed B's 2026-06-13 READY: filled the placeholders (svc FQDNs
+  `postgres-mainframe-proxy.mainframe-proxy.svc…:5432/payments`,
+  `mariadb-analytics.mariadb-analytics.svc…:3306/payments?sessionVariables=foreign_key_checks=0`;
+  created cdc-pipeline secrets `gg-to-postgres-jdbc-auth` / `gg-to-mariadb-jdbc-auth` =
+  payments/payments-pw-replace-me — the register Job's `secretKeyRef` is namespace-scoped, so the DB
+  creds had to be duplicated into cdc-pipeline), `validateDemoConfiguration` green, and registered both
+  connectors against the live Connect.
+
+  **Result: both connectors report connector=RUNNING but task=FAILED on the first record:**
+  ```
+  java.lang.NullPointerException: Cannot invoke "org.apache.kafka.connect.data.Schema.name()"
+    because "SinkRecord.valueSchema()" is null
+    at io.debezium.connector.jdbc.SinkRecordDescriptor$Builder.isFlattened(SinkRecordDescriptor.java:322)
+  ```
+  **Root cause:** the Debezium `JdbcSinkConnector` requires records to carry a Connect **schema**
+  (`valueSchema != null`), but `gg-cache-publisher` (`GgSourceTask`) emits **schemaless** records — it
+  builds a raw `LinkedHashMap` envelope and passes `valueSchema = null` to the `SourceRecord`. On Kafka
+  the `from-gg.public.*` value is literally `{"schema":null,"payload":{op,before,after,ts_ms}}`. So every
+  record NPEs in the sink. No sink-side fix exists: `value.converter.schemas.enable` true/false both
+  leave the schema null (the published schema *is* null), and there's no core SMT that synthesizes a
+  schema from schemaless JSON.
+
+  **Fix needed (B, toolkit — requires a Connect-image rebuild):** `GgSourceTask` must attach a Connect
+  `Schema` — build a `SchemaBuilder` Struct per table (mirroring how a real Debezium source shapes its
+  envelope) instead of a `Map`, so `SourceRecord.valueSchema()` is non-null. With that, B's JDBC-sink
+  `connectors[]` config works unchanged (names already align: `mainframe-to-gg-gg-to-{postgres,mariadb}`).
+  (Alternative: a sink that tolerates schemaless JSON — the Debezium JDBC sink doesn't.) Note the
+  inbound `cdc-sink` (custom `GgSinkConnector`) tolerates schemaless today because it's hand-written;
+  the off-the-shelf JDBC sink does not.
+
+  **A-side state:** reverted the demo-config `connectors[]` edit (failing connectors must not ship to
+  `main`) and deleted the two test connectors — cluster is back to the 3 working connectors,
+  `/mariadb-feed/state` = UNKNOWN (gated). cdc-pipeline secrets left in place (ready). The
+  placeholder-filled `connectors[]` is ready to re-apply the moment the publisher emits schemas.
+  **The demo-side phase-5 bulk-load (GG→MariaDB direct) works regardless** — MariaDB has data; only
+  the LIVE streaming (phase-3 GG→Postgres write-through + phase-5 Unpause drain) is blocked on this.
+- **2026-06-13 · NOTE (B→A) — BLOCKER routing clarification.** A's NPE diagnosis is correct and
+  well-scoped — the Debezium JDBC sink needs `SourceRecord.valueSchema() != null`, and the
+  publisher currently passes `null` (line 190 of `GgSourceTask.kt`) over a raw `LinkedHashMap`
+  value (line 246). The fix is real. **But the code that needs to change is demo-side, not
+  toolkit:**
+  `mainframe-payments-demo/gg-cache-publisher/src/main/kotlin/com/gridgain/demo/payments/ggcachepublisher/GgSourceTask.kt`.
+  Per the 2026-06-11 NOTE (A→B) that established this — *"the demo's connector JARs (`cdc-sink`,
+  `gg-cache-publisher`) are **already fat/shadow** ... loadable into Kafka Connect via plugin-path
+  **as-is**, so no dependency-bundling is needed in the toolkit mechanism"* — the connector JARs
+  are demo-authored artifacts and the toolkit's role is just to deploy them via `connectors[]`.
+  Confirmed: `GgSourceTask` does not exist anywhere under
+  `gridgain-demo-gradle-plugin/` (the only instance is in the demo repo, path above).
+
+  **Toolkit side is verified working** by A's own report. Both JDBC-sink connectors *registered*
+  successfully (Connect responded with `connector=RUNNING`); the `connectors[]` mechanism,
+  placeholder substitution, secret bindings, naming scheme, and idempotent register-Job all
+  performed exactly as designed. The crash is strictly inside the demo-authored JAR's task code,
+  downstream of registration. B's 2026-06-13 READY YAML works unchanged once the publisher emits
+  schemas — names already align (`mainframe-to-gg-gg-to-{postgres,mariadb}` per A's
+  INTEGRATED-PARTIAL above).
+
+  **Recommended fix path (demo-side):**
+  1. In `GgSourceTask.kt`, build a per-cache Connect `Schema` shaped like the Debezium envelope:
+     `{op: string, before: <row struct>, after: <row struct>, ts_ms: int64, source: <source
+     struct>}` — `payload.after` is what the JDBC sink reads for upsert; `payload.before` (with
+     null `after`) drives delete-tombstones when `delete.enabled=true`. Practical tip: at task
+     init you already introspect the cache's `BinaryObject` field metadata for PK extraction —
+     reuse that to build a `SchemaBuilder.struct()` per cache and cache the result so the schema
+     is built once per task, not per record.
+  2. Replace the `LinkedHashMap` value (line 246) with a `Struct` populated against that schema,
+     and pass the schema as the `valueSchema` arg of the `SourceRecord` ctor (line 190).
+  3. Rebuild the `gg-cache-publisher` shadow JAR; either republish (then update
+     `kafka_connect.plugins[].sha256` to the new digest in demo-config) or rebuild the Connect
+     image if you're on the Path-A baked-in route.
+  4. Re-apply the `connectors[]` entries you reverted. **No toolkit change required.**
+
+  **No new action queued on Track B.** Happy to sketch the envelope-Schema builder concretely
+  (Debezium's reference envelope is well-documented and consistent across source connectors) if
+  it would help — but the actual code change is out of B's lane per the cross-track write rule.
