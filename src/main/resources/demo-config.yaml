@@ -297,6 +297,12 @@ cdc_connectors:
           gg.jdbc.url: "jdbc:ignite:thin://mainframe-payments-gg8.mainframe-payments-gg8.svc.cluster.local:10800"
           gg.sql.schema: PUBLIC
           dialect: gg8
+          # Apply ONLY mainframe-originated rows to GG. Without this, GG-originated rows
+          # (source='gg') that the gg-to-postgres write-through lands in Postgres get
+          # re-captured by Debezium and re-applied to GG here, forming an infinite
+          # GG→Postgres→Debezium→GG→publisher loop (every phase-3 GG transaction would
+          # cycle forever). GgSinkTask drops records whose after.source != this value.
+          source.filter: "mf"
           topics: "mainframe-to-gg.public.customer,mainframe-to-gg.public.account,mainframe-to-gg.public.transaction,mainframe-to-gg.public.product"
           # The Debezium source publishes schemaless JSON (value/key
           # converter.schemas.enable=false). The sink must match, or it fails with
