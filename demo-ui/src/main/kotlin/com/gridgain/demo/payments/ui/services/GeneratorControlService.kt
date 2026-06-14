@@ -40,14 +40,28 @@ class GeneratorControlService(private val config: UiConfig) {
         // the dataGenerate task already reads ops.yaml / data.yaml, so all we
         // do here is invoke it. Future work (CLAUDE.md §16 live rate change)
         // can replace this with an in-process generator API.
+        // `dataGenerate` requires --scenario (no default); without it the subprocess fails
+        // immediately and the slider has no effect. Capture the output to a file too, so
+        // launch/dispatch failures are diagnosable instead of silently swallowed — and so the
+        // child never stalls writing into an undrained stdout pipe over a long (10m) run.
+        val logFile = config.projectDirectory
+            .resolve("build/gridgain/output/data-generator/datagen-launch.log").toFile()
+        logFile.parentFile?.mkdirs()
         val pb = ProcessBuilder(
             "./gradlew", "dataGenerate",
+            "--scenario", config.generatorScenario,
             "-PgeneratorRateOverride=${rate.opsPerSecond}",
         ).directory(config.projectDirectory.toFile())
             .redirectErrorStream(true)
+            .redirectOutput(logFile)
         runCatching { pb.start() }
             .onFailure { log.warn("Failed to start data generator at rate=$rate: ${it.message}") }
-            .onSuccess { log.info("Started data generator runId=$runId rate=$rate (${rate.opsPerSecond} ops/sec)") }
+            .onSuccess {
+                log.info(
+                    "Started data generator runId={} rate={} ({} ops/sec); scenario={}, output -> {}",
+                    runId, rate, rate.opsPerSecond, config.generatorScenario, logFile,
+                )
+            }
         return runId
     }
 

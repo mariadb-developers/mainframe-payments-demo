@@ -22,7 +22,9 @@ scenarios:
     target: mainframe-payments-gg8
     root_schemas: [customer]
     rate: { kind: constant, ops_per_second: 20 }
-    duration: { kind: time, value: "10m" }
+    # ISO-8601 duration — the generator parses this with java.time.Duration.parse,
+    # which requires the PnYnMnDTnHnMnS form ("10m" throws DateTimeParseException).
+    duration: { kind: time, value: "PT10M" }
     transaction_scope: business_event
     provisioning: skip   # GG cache schema is provisioned via the plugin's deployDataModel
     read_ratio: 0.20

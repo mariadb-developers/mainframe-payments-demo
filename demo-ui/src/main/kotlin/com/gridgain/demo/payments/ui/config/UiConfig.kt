@@ -20,6 +20,7 @@ data class UiConfig(
     val mariaDbSinkConnectorName: String,
     val projectDirectory: Path,
     val metricsTopic: String,
+    val generatorScenario: String,
 ) {
     companion object {
         fun fromEnvironment(): UiConfig {
@@ -68,6 +69,9 @@ data class UiConfig(
                 // The data generator publishes live throughput/latency to this Kafka topic ~1s
                 // (ops.yaml metrics block); GeneratorMetricsService consumes it off kafkaBootstrapServers.
                 metricsTopic = env("PAYMENTS_METRICS_TOPIC", "generator-metrics"),
+                // The scenario name dataGenerate runs (ops.yaml scenarios[].name). dataGenerate
+                // requires --scenario, so GeneratorControlService passes this.
+                generatorScenario = env("PAYMENTS_GENERATOR_SCENARIO", "mainframe-payments-load"),
             )
         }
 
