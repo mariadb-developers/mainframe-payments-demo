@@ -7,9 +7,12 @@ import { GridGainPanel } from '@/components/GridGainPanel'
 import { LoadSlider } from '@/components/LoadSlider'
 import { MainframePanel } from '@/components/MainframePanel'
 import { MariaDbPanel } from '@/components/MariaDbPanel'
+import { MetricsPanel } from '@/components/MetricsPanel'
 import { PhaseControl } from '@/components/PhaseControl'
 import { ResetButton } from '@/components/ResetButton'
+import { useMetricsWebSocket } from '@/hooks/useMetricsWebSocket'
 import { useTailerWebSocket } from '@/hooks/useTailerWebSocket'
+import { useThrottledBump } from '@/hooks/useThrottledBump'
 import type { TransactionResult } from '@/types/api'
 
 /**
@@ -85,6 +88,9 @@ export default function App() {
   const cdcStream = useTailerWebSocket('cdc')
   const ggToPostgresStream = useTailerWebSocket('gg-to-postgres')
   const ggToMariadbStream = useTailerWebSocket('gg-to-mariadb')
+
+  // Generator throughput + GridGain execution latency for the phase-6 graphs (top-right).
+  const metricsStream = useMetricsWebSocket()
 
   useEffect(() => {
     phaseApi
@@ -215,9 +221,16 @@ export default function App() {
   // plus an explicit tick after Bulk Load / Unpause (see ggRefreshTick above).
   // MariaDbPanel runs queries on user click — refresh on every gg-to-mariadb event,
   // plus an explicit tick after the phase-5 Bulk Load / Unpause (mariaRefreshTick).
-  const mainframeReloadKey = userExecuteCount + ggToPostgresStream.events.length
-  const ggReloadKey = userExecuteCount + cdcStream.events.length + ggRefreshTick
-  const mariaReloadKey = userExecuteCount + ggToMariadbStream.events.length + mariaRefreshTick
+  //
+  // The event-count signal is throttled (leading+trailing, ~800ms): at low rate each landed
+  // event refreshes the panel immediately (phases 3/4 stay snappy); at phase-6 load the flood
+  // of events coalesces into ~1 refresh/sec rather than a backend re-query per event.
+  const mainframeBump = useThrottledBump(ggToPostgresStream.events.length, 800)
+  const ggBump = useThrottledBump(cdcStream.events.length, 800)
+  const mariaBump = useThrottledBump(ggToMariadbStream.events.length, 800)
+  const mainframeReloadKey = userExecuteCount + mainframeBump
+  const ggReloadKey = userExecuteCount + ggBump + ggRefreshTick
+  const mariaReloadKey = userExecuteCount + mariaBump + mariaRefreshTick
 
   return (
     <div className="h-full grid grid-rows-[auto_1fr] bg-surface-950">
@@ -237,7 +250,13 @@ export default function App() {
       {/* Main grid: GG (top, centered) / Tailers row / Mainframe + MariaDB row.
           The three panels are sized and pushed apart so they read as a separated
           triangle — GG top-center, Mainframe bottom-left, MariaDB bottom-right. */}
-      <main className="grid grid-rows-[1fr_auto_1fr] gap-3 p-3 min-h-0">
+      <main className="relative grid grid-rows-[1fr_auto_1fr] gap-3 p-3 min-h-0">
+        {/* Live load graphs, top-right of the canvas. Phase 6 only (when the generator runs);
+            sits in the empty space right of the centered GG panel. */}
+        <div className="absolute top-3 right-3 z-10">
+          <MetricsPanel stream={metricsStream} visible={v.loadSlider} />
+        </div>
+
         {/* GridGain — centered, same width as the (narrowed) MariaDB panel. */}
         <div className="flex justify-center min-h-0">
           <div className={['relative min-h-0 h-full basis-[40%] shrink-0', v.ggPanel ? '' : 'invisible'].join(' ')}>

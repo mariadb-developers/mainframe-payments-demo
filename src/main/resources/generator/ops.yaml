@@ -1,9 +1,18 @@
-schema_version: 3
+schema_version: 4
 
 targets:
   - name: mainframe-payments-gg8
     kind: gg8-kv
     cluster_name: mainframe-payments-gg8
+
+# Live throughput + per-op GridGain execution latency, published ~1s to a Kafka topic for the
+# demo UI's top-right graphs (the demo-ui backend's GeneratorMetricsService consumes it). The
+# generator runs in-cluster (dataGenerate default mode), so this is the cluster-internal broker
+# DNS; the UI backend reads the same topic over its own (external/port-forwarded) bootstrap.
+metrics:
+  kafka_bootstrap: "mainframe-to-gg-kafka.cdc-pipeline.svc.cluster.local:9092"
+  topic: "generator-metrics"
+  interval_ms: 1000
 
 scenarios:
   # The phase-5 load scenario. The UI's stepped slider re-runs this scenario

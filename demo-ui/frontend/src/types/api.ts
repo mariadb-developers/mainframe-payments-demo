@@ -68,6 +68,19 @@ export interface GeneratorState {
   run_id: string | null
 }
 
+// Live throughput + GridGain execution latency from the data generator, streamed over
+// /api/metrics ~1s. Mirrors com.gridgain.demo.payments.ui.metrics.MetricsSnapshot (snake_case).
+export interface MetricsSnapshot {
+  updated_at_ms: number
+  observed_tps: number
+  avg_latency_ms: number
+  total_ops: number
+  error_count: number
+  target_tps: number
+  run_id: string
+  active: boolean
+}
+
 export interface ResetStep {
   name: string
   result: string

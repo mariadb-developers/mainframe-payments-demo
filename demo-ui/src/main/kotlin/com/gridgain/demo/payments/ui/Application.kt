@@ -5,12 +5,14 @@ import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.gridgain.demo.payments.ui.config.UiConfig
+import com.gridgain.demo.payments.ui.metrics.GeneratorMetricsService
 import com.gridgain.demo.payments.ui.routes.bringOnlineRoutes
 import com.gridgain.demo.payments.ui.routes.demoRoutes
 import com.gridgain.demo.payments.ui.routes.generatorRoutes
 import com.gridgain.demo.payments.ui.routes.gridGainRoutes
 import com.gridgain.demo.payments.ui.routes.mainframeRoutes
 import com.gridgain.demo.payments.ui.routes.mariaDbRoutes
+import com.gridgain.demo.payments.ui.routes.metricsRoutes
 import com.gridgain.demo.payments.ui.routes.phaseRoutes
 import com.gridgain.demo.payments.ui.routes.tailerRoutes
 import com.gridgain.demo.payments.ui.services.BulkLoadService
@@ -105,6 +107,8 @@ fun Application.configureRouting(config: UiConfig) {
     val gridGainService = GridGainService(config)
     val phaseService = PhaseService()
     val generatorService = GeneratorControlService(config)
+    val generatorMetricsService = GeneratorMetricsService(config.kafkaBootstrapServers, config.metricsTopic)
+    generatorMetricsService.start()
     val cdcSinkControlService = ConnectorControlService(config.kafkaConnectUrl, config.cdcSinkConnectorName)
     val mariaSinkControlService = ConnectorControlService(config.kafkaConnectUrl, config.mariaDbSinkConnectorName)
     val bulkLoadService = BulkLoadService(mainframeService, gridGainService)
@@ -150,6 +154,7 @@ fun Application.configureRouting(config: UiConfig) {
 
     environment.monitor.subscribe(io.ktor.server.application.ApplicationStopped) {
         taps.forEach { it.close() }
+        generatorMetricsService.close()
         mainframeService.close()
         mariaDbService.close()
         gridGainService.close()
@@ -162,6 +167,7 @@ fun Application.configureRouting(config: UiConfig) {
             mariaDbRoutes(mariaDbService)
             phaseRoutes(phaseService)
             tailerRoutes(tailerService)
+            metricsRoutes(generatorMetricsService)
             generatorRoutes(generatorService)
             bringOnlineRoutes(cdcSinkControlService, bulkLoadService, mariaSinkControlService, mariaBulkLoadService)
             demoRoutes(resetService)

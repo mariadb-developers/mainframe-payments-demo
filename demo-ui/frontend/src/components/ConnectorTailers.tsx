@@ -5,7 +5,14 @@ import type { TailerEvent } from '@/types/api'
 export interface TailerStream {
   events: TailerEvent[]
   connected: boolean
+  // Events/sec on this path (client-measured, decaying). Drives the high-rate summary switch.
+  rate: number
 }
+
+// Above this per-path event rate the window stops listing individual rows and shows a flow
+// animation instead — at phase-6 load the lines are an illegible blur and the graphs (top-right)
+// own the quantitative story (CLAUDE.md §3/§5). Below it, the per-line feed is the whole point.
+const SUMMARY_RATE_THRESHOLD = 12
 
 /** Row styling for a window during a bring-online beat: `queued` = buffered in
  *  Kafka (bright white), `applied` = drained to the target (dimmed + struck
@@ -137,6 +144,10 @@ function SingleTailer({
   const scrollRef = useRef<HTMLDivElement>(null)
   const events = stream?.events ?? []
   const connected = stream?.connected ?? false
+  const rate = stream?.rate ?? 0
+  // Never summarize during a bring-online beat — that's a deliberate low-volume moment whose
+  // per-line detail (queued→applied) is the point.
+  const summaryMode = appliedState === 'normal' && rate > SUMMARY_RATE_THRESHOLD
 
   // Keep the newest line in view so the window reads as a live, scrolling feed.
   useEffect(() => {
@@ -152,32 +163,72 @@ function SingleTailer({
     <div className="bg-surface-900 border border-surface-700 rounded h-24 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between bg-surface-800 px-2 py-1">
         <div className="text-xs font-mono uppercase tracking-wider text-surface-300">{label}</div>
-        <FeedBadge appliedState={appliedState} connected={connected} />
+        <FeedBadge appliedState={appliedState} connected={connected} summaryMode={summaryMode} />
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-auto font-mono text-[11px] leading-tight p-1">
-        {events.length === 0 && <div className="text-surface-600 px-1">(no events)</div>}
-        {events.slice(-40).map((e, i) => (
-          <TailerRow
-            key={`${e.timestamp}-${e.key}-${i}`}
-            event={e}
-            highlighted={!!e.correlation_id && e.correlation_id === highlightedCorrelationId}
-            appliedState={appliedState}
-            lookups={lookups}
-          />
-        ))}
-      </div>
+      {summaryMode ? (
+        <FlowSummary />
+      ) : (
+        <div ref={scrollRef} className="flex-1 overflow-auto font-mono text-[11px] leading-tight p-1">
+          {events.length === 0 && <div className="text-surface-600 px-1">(no events)</div>}
+          {events.slice(-40).map((e, i) => (
+            <TailerRow
+              key={`${e.timestamp}-${e.key}-${i}`}
+              event={e}
+              highlighted={!!e.correlation_id && e.correlation_id === highlightedCorrelationId}
+              appliedState={appliedState}
+              lookups={lookups}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * High-rate stand-in for the per-line feed: a continuously flowing dashed line that signals
+ * "this path is actively streaming" without the browser rendering a row per event. The
+ * quantitative rate lives in the top-right graphs, so this deliberately shows no number.
+ */
+function FlowSummary() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-1.5 px-3">
+      <svg width="100%" height="16" viewBox="0 0 240 16" preserveAspectRatio="none" aria-hidden="true">
+        <line
+          x1="0"
+          y1="8"
+          x2="240"
+          y2="8"
+          stroke="#36adf8"
+          strokeWidth="2"
+          strokeDasharray="6 6"
+          className="animate-flow-dash"
+        />
+      </svg>
+      <div className="text-[10px] font-mono uppercase tracking-wider text-surface-500">streaming</div>
     </div>
   )
 }
 
 /** During the beat the Mainframe→GG window shows whether events are buffering
  *  (paused) or being applied; otherwise the normal live/idle tap indicator. */
-function FeedBadge({ appliedState, connected }: { appliedState: AppliedState; connected: boolean }) {
+function FeedBadge({
+  appliedState,
+  connected,
+  summaryMode,
+}: {
+  appliedState: AppliedState
+  connected: boolean
+  summaryMode: boolean
+}) {
   if (appliedState === 'queued') {
     return <div className="text-[10px] font-mono text-amber-300">⏸ buffering</div>
   }
   if (appliedState === 'applied') {
     return <div className="text-[10px] font-mono text-emerald-400">● applying</div>
+  }
+  if (summaryMode) {
+    return <div className="text-[10px] font-mono text-gg-400">≈ high volume</div>
   }
   return (
     <div className={['text-[10px] font-mono', connected ? 'text-emerald-400' : 'text-surface-500'].join(' ')}>

@@ -19,6 +19,7 @@ data class UiConfig(
     val cdcSinkConnectorName: String,
     val mariaDbSinkConnectorName: String,
     val projectDirectory: Path,
+    val metricsTopic: String,
 ) {
     companion object {
         fun fromEnvironment(): UiConfig {
@@ -64,6 +65,9 @@ data class UiConfig(
                 // convention; confirm the actual name when the sink lands and override here if needed.
                 mariaDbSinkConnectorName = env("PAYMENTS_MARIADB_SINK_CONNECTOR", "mainframe-to-gg-gg-to-mariadb"),
                 projectDirectory = projectDir,
+                // The data generator publishes live throughput/latency to this Kafka topic ~1s
+                // (ops.yaml metrics block); GeneratorMetricsService consumes it off kafkaBootstrapServers.
+                metricsTopic = env("PAYMENTS_METRICS_TOPIC", "generator-metrics"),
             )
         }
 

@@ -54,6 +54,9 @@ export default {
         'fade-in': 'fadeIn 0.3s ease-out',
         'slide-up': 'slideUp 0.3s ease-out',
         'pulse-corr': 'pulseCorr 0.9s ease-out',
+        // Continuous "flow" for the high-rate tailer summary mode: marches an SVG line's
+        // dash pattern so it reads as a steady stream rather than discrete event rows.
+        'flow-dash': 'flowDash 0.8s linear infinite',
       },
       keyframes: {
         fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
@@ -65,6 +68,7 @@ export default {
           '0%, 100%': { backgroundColor: 'rgba(125, 211, 252, 0)' },
           '50%': { backgroundColor: 'rgba(125, 211, 252, 0.25)' },
         },
+        flowDash: { '0%': { strokeDashoffset: '24' }, '100%': { strokeDashoffset: '0' } },
       },
     },
   },

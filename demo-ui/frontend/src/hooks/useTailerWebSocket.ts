@@ -14,8 +14,22 @@ const MAX_BUFFER = 50
 export function useTailerWebSocket(source: string) {
   const [events, setEvents] = useState<TailerEvent[]>([])
   const [connected, setConnected] = useState(false)
+  // Events/sec on this path, measured from client-side arrival times over a 1s window. Decays
+  // to 0 when events stop (the 500ms interval prunes), so summary mode reverts cleanly. Used by
+  // the tailer to switch to flow/summary rendering above a threshold (CLAUDE.md §3/§5).
+  const [rate, setRate] = useState(0)
+  const arrivalsRef = useRef<number[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const cutoff = Date.now() - 1000
+      arrivalsRef.current = arrivalsRef.current.filter((t) => t >= cutoff)
+      setRate((prev) => (prev === arrivalsRef.current.length ? prev : arrivalsRef.current.length))
+    }, 500)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -28,6 +42,7 @@ export function useTailerWebSocket(source: string) {
       ws.onmessage = (e) => {
         try {
           const ev: TailerEvent = JSON.parse(e.data)
+          arrivalsRef.current.push(Date.now())
           setEvents((prev) => {
             const next = [...prev, ev]
             if (next.length > MAX_BUFFER) next.splice(0, next.length - MAX_BUFFER)
@@ -61,5 +76,5 @@ export function useTailerWebSocket(source: string) {
   // fires the in-flight transaction).
   const clear = useCallback(() => setEvents([]), [])
 
-  return { events, connected, clear }
+  return { events, connected, clear, rate }
 }
