@@ -19,7 +19,15 @@ CREATE TABLE account (
     account_id   BIGINT       PRIMARY KEY,
     customer_id  BIGINT       NOT NULL REFERENCES customer(customer_id),
     balance      BIGINT       NOT NULL,  -- in cents
-    source       VARCHAR(2)   NOT NULL DEFAULT 'mf'
+    source       VARCHAR(2)   NOT NULL DEFAULT 'mf',
+    -- GG colocates account by (account_id, customer_id) (composite PK, CLAUDE.md §6), so the
+    -- GG→Postgres JDBC sink emits a composite record key and upserts with
+    -- ON CONFLICT (account_id, customer_id). Postgres needs a unique constraint on exactly those
+    -- columns or the upsert fails ("no unique or exclusion constraint matching the ON CONFLICT
+    -- specification"), killing the sink on the first GG purchase. account_id alone is already
+    -- unique, so this is non-restricting — it just gives ON CONFLICT a target. (MariaDB's
+    -- ON DUPLICATE KEY resolves on the account_id PK and needs no equivalent.)
+    UNIQUE (account_id, customer_id)
 );
 
 CREATE TABLE product (
