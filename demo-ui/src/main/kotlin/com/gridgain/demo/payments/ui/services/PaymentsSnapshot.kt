@@ -19,6 +19,16 @@ data class PaymentsSnapshot(
     val products: List<ProductRow>,
     val transactions: List<TransactionRow>,
 ) {
+    /** Per-table row counts, keyed to match [GridGainService.bulkLoad] / [MariaDbService.bulkLoad]
+     *  output, so a Bulk Dump can report what it captured the same way a Bulk Load reports what
+     *  it wrote. */
+    fun counts(): Map<String, Int> = mapOf(
+        "Customer" to customers.size,
+        "Account" to accounts.size,
+        "Product" to products.size,
+        "Transaction" to transactions.size,
+    )
+
     data class CustomerRow(val customerId: Long, val firstName: String, val source: String)
 
     data class AccountRow(val accountId: Long, val customerId: Long, val balanceCents: Long, val source: String)

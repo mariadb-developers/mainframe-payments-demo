@@ -121,6 +121,8 @@ fun Application.configureRouting(config: UiConfig) {
         generatorService = generatorService,
         cdcSinkControlService = cdcSinkControlService,
         mariaSinkControlService = mariaSinkControlService,
+        bulkLoadService = bulkLoadService,
+        mariaBulkLoadService = mariaBulkLoadService,
     )
     // Three tailer taps, one per UI panel — each reads from Kafka directly so
     // the panel reflects exactly what the corresponding sink applies:

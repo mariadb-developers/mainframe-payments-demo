@@ -43,6 +43,8 @@ class DemoResetService(
     private val generatorService: GeneratorControlService,
     private val cdcSinkControlService: ConnectorControlService,
     private val mariaSinkControlService: ConnectorControlService,
+    private val bulkLoadService: BulkLoadService,
+    private val mariaBulkLoadService: MariaDbBulkLoadService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -66,6 +68,8 @@ class DemoResetService(
 
         step("generator stop")     { generatorService.setRate(GeneratorRate.OFF) }
         step("phase to 0")         { phaseService.reset() }
+        // Drop any snapshot held between a dump and load, so each beat re-dumps fresh.
+        step("clear bulk dumps")   { bulkLoadService.clear(); mariaBulkLoadService.clear() }
         step("cdc feed pause")     { cdcSinkControlService.pause() }
         step("mariadb feed pause") { mariaSinkControlService.pause() }
         step("gridgain clear")     { gridGainService.reset() }

@@ -44,6 +44,7 @@ export default function App() {
   // panel to re-fetch once the backlog has drained (the proof transaction
   // arrived before unpause, so no fresh cdc event ticks the panel afterward).
   const [feedLive, setFeedLive] = useState(false)
+  const [ggDumped, setGgDumped] = useState(false)
   const [ggLoaded, setGgLoaded] = useState(false)
   const [bringOnlineBusy, setBringOnlineBusy] = useState(false)
   const [bringOnlineError, setBringOnlineError] = useState<string | null>(null)
@@ -53,6 +54,7 @@ export default function App() {
   // above, for the GG→MariaDB sink. The Unpause half is gated on the toolkit
   // deploying that sink; the Bulk Load half (GG→MariaDB direct) works now.
   const [mariaFeedLive, setMariaFeedLive] = useState(false)
+  const [mariaDumped, setMariaDumped] = useState(false)
   const [mariaLoaded, setMariaLoaded] = useState(false)
   const [mariaBusy, setMariaBusy] = useState(false)
   const [mariaError, setMariaError] = useState<string | null>(null)
@@ -137,9 +139,11 @@ export default function App() {
     setPhase(0)
     setUserExecuteCount((n) => n + 1)
     setFeedLive(false)
+    setGgDumped(false)
     setGgLoaded(false)
     setBringOnlineError(null)
     setMariaFeedLive(false)
+    setMariaDumped(false)
     setMariaLoaded(false)
     setMariaError(null)
     // Start the beats with clean windows — drop the reseed burst that fills Kafka
@@ -147,6 +151,19 @@ export default function App() {
     cdcStream.clear()
     ggToPostgresStream.clear()
     ggToMariadbStream.clear()
+  }
+
+  const onBulkDump = async () => {
+    setBringOnlineBusy(true)
+    setBringOnlineError(null)
+    try {
+      await cdcApi.bulkDump()
+      setGgDumped(true)
+    } catch (e) {
+      setBringOnlineError(`Bulk Dump failed — ${(e as Error).message}`)
+    } finally {
+      setBringOnlineBusy(false)
+    }
   }
 
   const onBulkLoad = async () => {
@@ -184,7 +201,20 @@ export default function App() {
     }
   }
 
-  // Phase-5 MariaDB beat — mirrors onBulkLoad/onUnpause for the GG→MariaDB feed.
+  // Phase-5 MariaDB beat — mirrors onBulkDump/onBulkLoad/onUnpause for the GG→MariaDB feed.
+  const onMariaBulkDump = async () => {
+    setMariaBusy(true)
+    setMariaError(null)
+    try {
+      await mariaDbApi.bulkDump()
+      setMariaDumped(true)
+    } catch (e) {
+      setMariaError(`Bulk Dump failed — ${(e as Error).message}`)
+    } finally {
+      setMariaBusy(false)
+    }
+  }
+
   const onMariaBulkLoad = async () => {
     setMariaBusy(true)
     setMariaError(null)
@@ -275,11 +305,13 @@ export default function App() {
               appliedState: beatState(beatActive, feedLive),
               topControls: beatActive ? (
                 <BringOnlineControls
-                  ggLoaded={ggLoaded}
+                  dumped={ggDumped}
+                  loaded={ggLoaded}
                   feedLive={feedLive}
                   busy={bringOnlineBusy}
                   error={bringOnlineError}
-                  onBulkLoad={onBulkLoad}
+                  onDump={onBulkDump}
+                  onLoad={onBulkLoad}
                   onUnpause={onUnpause}
                 />
               ) : undefined,
@@ -292,11 +324,13 @@ export default function App() {
               appliedState: beatState(mariaBeatActive, mariaFeedLive),
               topControls: mariaBeatActive ? (
                 <BringOnlineControls
-                  ggLoaded={mariaLoaded}
+                  dumped={mariaDumped}
+                  loaded={mariaLoaded}
                   feedLive={mariaFeedLive}
                   busy={mariaBusy}
                   error={mariaError}
-                  onBulkLoad={onMariaBulkLoad}
+                  onDump={onMariaBulkDump}
+                  onLoad={onMariaBulkLoad}
                   onUnpause={onMariaUnpause}
                 />
               ) : undefined,

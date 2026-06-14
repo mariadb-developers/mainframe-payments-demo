@@ -66,6 +66,8 @@ export const mariaDbApi = {
   feedState: () => getJson<CdcFeedStateResponse>('/api/mariadb-feed/state'),
   pause: () => postJson<CdcFeedStateResponse>('/api/mariadb-feed/pause', {}),
   resume: () => postJson<CdcFeedStateResponse>('/api/mariadb-feed/resume', {}),
+  // Phase-5 beat split into two steps: dump captures + holds the GG snapshot, load applies it.
+  bulkDump: () => postJson<BulkLoadResult>('/api/mariadb-feed/bulk-dump', {}),
   bulkLoad: () => postJson<BulkLoadResult>('/api/mariadb-feed/bulk-load', {}),
 }
 
@@ -89,5 +91,7 @@ export const cdcApi = {
   state: () => getJson<CdcFeedStateResponse>('/api/cdc/state'),
   pause: () => postJson<CdcFeedStateResponse>('/api/cdc/pause', {}),
   resume: () => postJson<CdcFeedStateResponse>('/api/cdc/resume', {}),
+  // Phase-2 beat split into two steps: dump captures + holds the mainframe snapshot, load applies it.
+  bulkDump: () => postJson<BulkLoadResult>('/api/cdc/bulk-dump', {}),
   bulkLoad: () => postJson<BulkLoadResult>('/api/cdc/bulk-load', {}),
 }

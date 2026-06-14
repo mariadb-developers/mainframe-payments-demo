@@ -32,12 +32,16 @@ fun Route.bringOnlineRoutes(
         get("/state") { call.respond(mapOf("state" to cdcSink.state().name)) }
         post("/pause") { call.respond(mapOf("state" to cdcSink.pause().name)) }
         post("/resume") { call.respond(mapOf("state" to cdcSink.resume().name)) }
+        // bulk-dump captures + holds the Postgres snapshot; bulk-load applies the held snapshot
+        // into GG. Split so the presenter can fire a transaction in the gap (CLAUDE.md §2).
+        post("/bulk-dump") { call.respond(bulkLoad.bulkDump()) }
         post("/bulk-load") { call.respond(bulkLoad.bulkLoad()) }
     }
     route("/mariadb-feed") {
         get("/state") { call.respond(mapOf("state" to mariaSink.state().name)) }
         post("/pause") { call.respond(mapOf("state" to mariaSink.pause().name)) }
         post("/resume") { call.respond(mapOf("state" to mariaSink.resume().name)) }
+        post("/bulk-dump") { call.respond(mariaBulkLoad.bulkDump()) }
         post("/bulk-load") { call.respond(mariaBulkLoad.bulkLoad()) }
     }
 }
