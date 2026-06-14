@@ -39,6 +39,17 @@ dependencies {
 
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
     implementation("org.slf4j:slf4j-api:2.0.13")
+
+    // connect-api is compileOnly for the main set (the Connect runtime provides it);
+    // tests construct Schema/Struct directly, so it must be on the test classpath.
+    testImplementation("org.apache.kafka:connect-api:$kafkaVersion")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    // Gradle 9 no longer bundles the JUnit Platform launcher on the test runtime.
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 java {

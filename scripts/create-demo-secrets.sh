@@ -44,4 +44,20 @@ apply "$(kubectl create secret generic mainframe-to-gg-debezium-auth \
   --from-literal=password=debezium-password-replace-me \
   --dry-run=client -o yaml)"
 
+# --- Outbound GG write-through JDBC sinks (gg-to-postgres / gg-to-mariadb) ----------
+# The two debezium-connector-jdbc sinks run inside the Connect pod (cdc-pipeline) and
+# connect to the Postgres mainframe-proxy / MariaDB analytics DBs. The connectors[]
+# entries reference these via secret_ref, so the secrets must live in cdc-pipeline
+# (not the DB namespaces). Credentials match the DB auth secrets above.
+apply "$(kubectl create secret generic gg-to-postgres-jdbc-auth \
+  -n cdc-pipeline \
+  --from-literal=username=payments \
+  --from-literal=password=payments-pw-replace-me \
+  --dry-run=client -o yaml)"
+apply "$(kubectl create secret generic gg-to-mariadb-jdbc-auth \
+  -n cdc-pipeline \
+  --from-literal=username=payments \
+  --from-literal=password=payments-pw-replace-me \
+  --dry-run=client -o yaml)"
+
 echo "✅ Demo secrets created (or updated) in all three namespaces."

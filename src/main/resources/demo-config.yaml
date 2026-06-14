@@ -316,6 +316,74 @@ cdc_connectors:
           # as caches and fail the task with "Cache does not exist".
           gg.caches: "SQL_PUBLIC_CUSTOMER,SQL_PUBLIC_ACCOUNT,SQL_PUBLIC_TRANSACTION"
         secrets: {}
+      # Outbound GG write-through fan-out (CLAUDE.md §7). The gg-cache-publisher emits
+      # a schema-bearing Debezium-style envelope on from-gg.public.* / from-mf.public.*
+      # (gg.public.<table>.Envelope), so these off-the-shelf debezium-connector-jdbc
+      # sinks consume it directly. Three settings are load-bearing and differ from a
+      # naive recipe:
+      #   * key/value converter schemas.enable=TRUE — the publisher's records carry a
+      #     Connect schema; the sink NPEs (null valueSchema) if it reads schemaless.
+      #   * primary.key.fields is OMITTED — with record_key mode an empty string parses
+      #     to [""] (Java String.split), matching no field → "no key fields defined".
+      #     Omitting it uses all record-key struct fields, which differ per table.
+      #   * consumer.override.auto.offset.reset=latest — the sinks carry the live
+      #     fan-out only; baseline data lands via the demo UI's direct bulk-loads.
+      - name: gg-to-postgres
+        class: io.debezium.connector.jdbc.JdbcSinkConnector
+        config:
+          tasks.max: "1"
+          topics: "from-gg.public.account,from-gg.public.transaction,from-gg.public.customer,from-gg.public.product"
+          connection.url: "jdbc:postgresql://postgres-mainframe-proxy.mainframe-proxy.svc.cluster.local:5432/payments?reWriteBatchedInserts=true"
+          connection.username: "__PG_USER__"
+          connection.password: "__PG_PASSWORD__"
+          insert.mode: "upsert"
+          primary.key.mode: "record_key"
+          delete.enabled: "true"
+          table.name.format: "${topic}"
+          transforms: "stripPrefix"
+          transforms.stripPrefix.type: "org.apache.kafka.connect.transforms.RegexRouter"
+          transforms.stripPrefix.regex: "from-gg\\.public\\.(.*)"
+          transforms.stripPrefix.replacement: "$1"
+          key.converter: "org.apache.kafka.connect.json.JsonConverter"
+          key.converter.schemas.enable: "true"
+          value.converter: "org.apache.kafka.connect.json.JsonConverter"
+          value.converter.schemas.enable: "true"
+          consumer.override.auto.offset.reset: "latest"
+        secrets:
+          __PG_USER__:
+            secret_ref: gg-to-postgres-jdbc-auth
+            key: username
+          __PG_PASSWORD__:
+            secret_ref: gg-to-postgres-jdbc-auth
+            key: password
+      - name: gg-to-mariadb
+        class: io.debezium.connector.jdbc.JdbcSinkConnector
+        config:
+          tasks.max: "1"
+          topics.regex: "from-(gg|mf)\\.public\\..*"
+          connection.url: "jdbc:mariadb://mariadb-analytics.mariadb-analytics.svc.cluster.local:3306/payments?sessionVariables=foreign_key_checks=0"
+          connection.username: "__MARIADB_USER__"
+          connection.password: "__MARIADB_PASSWORD__"
+          insert.mode: "upsert"
+          primary.key.mode: "record_key"
+          delete.enabled: "true"
+          table.name.format: "${topic}"
+          transforms: "stripPrefix"
+          transforms.stripPrefix.type: "org.apache.kafka.connect.transforms.RegexRouter"
+          transforms.stripPrefix.regex: "from-(gg|mf)\\.public\\.(.*)"
+          transforms.stripPrefix.replacement: "$2"
+          key.converter: "org.apache.kafka.connect.json.JsonConverter"
+          key.converter.schemas.enable: "true"
+          value.converter: "org.apache.kafka.connect.json.JsonConverter"
+          value.converter.schemas.enable: "true"
+          consumer.override.auto.offset.reset: "latest"
+        secrets:
+          __MARIADB_USER__:
+            secret_ref: gg-to-mariadb-jdbc-auth
+            key: username
+          __MARIADB_PASSWORD__:
+            secret_ref: gg-to-mariadb-jdbc-auth
+            key: password
     kafka:
       image: apache/kafka:3.9.2
       replicas: 1
@@ -333,7 +401,7 @@ cdc_connectors:
       # Custom image: debezium/connect with the demo's two connector plugins baked
       # in (built from connect-image/Dockerfile, Path A). Must be a PUBLIC GHCR
       # package — the Connect Deployment sets no imagePullSecret for this field.
-      image: ghcr.io/escapedcanadian/mainframe-payments-connect:0.0.3
+      image: ghcr.io/escapedcanadian/mainframe-payments-connect:0.0.4
       replicas: 1
       rest_port: 8083
       # GG8's thin-client/JDBC driver needs these --add-opens to initialise under the

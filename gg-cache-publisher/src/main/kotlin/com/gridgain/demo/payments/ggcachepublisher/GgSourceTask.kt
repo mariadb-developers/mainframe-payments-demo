@@ -3,7 +3,6 @@ package com.gridgain.demo.payments.ggcachepublisher
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.ResultSet
-import java.sql.Timestamp
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import org.apache.ignite.Ignition
@@ -12,6 +11,8 @@ import org.apache.ignite.cache.query.ContinuousQuery
 import org.apache.ignite.client.IgniteClient
 import org.apache.ignite.configuration.ClientConfiguration
 import org.apache.kafka.connect.data.Schema
+import org.apache.kafka.connect.data.SchemaBuilder
+import org.apache.kafka.connect.data.Struct
 import org.apache.kafka.connect.header.ConnectHeaders
 import org.apache.kafka.connect.source.SourceRecord
 import org.apache.kafka.connect.source.SourceTask
@@ -52,6 +53,13 @@ class GgSourceTask : SourceTask() {
     @Volatile private var jdbc: Connection? = null
     private val pending = LinkedBlockingQueue<PendingEvent>()
     private val pkColsByTable = mutableMapOf<String, List<String>>()
+    // Connect schemas, derived once per table from JDBC metadata and reused. The
+    // off-the-shelf Debezium JDBC sink requires every record to carry a non-null
+    // schema (it NPEs in SinkRecordDescriptor.isFlattened otherwise), so the
+    // value/key must be Structs, not schemaless Maps. (poll() runs single-threaded.)
+    private val rowSchemaByTable = mutableMapOf<String, Schema>()
+    private val envelopeSchemaByTable = mutableMapOf<String, Schema>()
+    private val keySchemaByTable = mutableMapOf<String, Schema>()
 
     override fun version(): String = "0.0.1-SNAPSHOT"
 
@@ -143,41 +151,42 @@ class GgSourceTask : SourceTask() {
         // column->value map so the SQL re-read and the emitted key work for both.
         val keyMap = keyValues(e.key, pkColumnsFor(tableName))
 
-        val after = if (e.opType == "d") null else readRow(tableName, keyMap)
-        val before = if (e.opType == "d") keyMap else null
+        // Read the current row as a schema-bearing Struct. null on the race where
+        // it was already deleted; we don't read at all for op='d' (deletes carry no
+        // `source` and route out below, as before).
+        val row = if (e.opType == "d") null else readRowStruct(tableName, keyMap)
 
-        // Route by source so each downstream sink can subscribe to exactly the
-        // origin it cares about without needing a value-aware Filter SMT.
-        val rowSource = (after ?: before)?.get("source")?.toString()
+        // Route by source so each downstream sink subscribes to exactly its origin.
+        val rowSource = row?.after?.getString("source")
         val topicPrefix = when (rowSource) {
             "gg" -> topicPrefixGg
             "mf" -> topicPrefixMf
             else -> {
                 log.debug(
-                    "Skipping cache event on {} key={} with unknown source='{}' " +
-                        "(no topic-prefix mapping; row was probably written without a source value)",
-                    e.cacheName, e.key, rowSource,
+                    "Skipping cache event on {} key={} op={} source='{}' (no topic-prefix mapping)",
+                    e.cacheName, e.key, e.opType, rowSource,
                 )
                 return null
             }
         }
+        val r = row!! // non-null here: rowSource resolved to "gg"/"mf"
         val topic = "$topicPrefix.public.$tableName"
 
-        // Strip correlation_id from the payload — it travels in the Kafka
-        // record header so the JDBC sinks don't try to write it as a column.
-        val correlationId = after?.get(CORRELATION_FIELD)?.toString()
-        val cleanAfter = after?.filterKeys { it != CORRELATION_FIELD }
+        // Debezium-shaped envelope, now SCHEMA-BEARING so the off-the-shelf
+        // debezium-connector-jdbc sink accepts it (it NPEs on a null valueSchema).
+        // `before` stays null — we re-read current state and deletes are skipped
+        // above; correlation_id rides the header, not the payload.
+        val envSchema = envelopeSchema(tableName, r.schema)
+        val envelope = Struct(envSchema)
+            .put("op", e.opType)
+            .put("after", r.after)
+            .put("ts_ms", e.tsMs)
 
-        val envelope = linkedMapOf<String, Any?>(
-            "op" to e.opType,
-            "before" to before,
-            "after" to cleanAfter,
-            "ts_ms" to e.tsMs,
-        )
+        val (keySchema, keyStruct) = keyStructFor(tableName, keyMap)
 
         val headers = ConnectHeaders()
-        if (correlationId != null) {
-            headers.add("correlation-id", correlationId, Schema.STRING_SCHEMA)
+        if (r.correlationId != null) {
+            headers.add("correlation-id", r.correlationId, Schema.STRING_SCHEMA)
         }
 
         return SourceRecord(
@@ -185,9 +194,9 @@ class GgSourceTask : SourceTask() {
             /* sourceOffset     = */ mapOf("ts" to e.tsMs),
             /* topic            = */ topic,
             /* partition        = */ null,
-            /* keySchema        = */ null,
-            /* key              = */ keyMap,
-            /* valueSchema      = */ null,
+            /* keySchema        = */ keySchema,
+            /* key              = */ keyStruct,
+            /* valueSchema      = */ envSchema,
             /* value            = */ envelope,
             /* timestamp        = */ e.tsMs,
             /* headers          = */ headers,
@@ -196,17 +205,90 @@ class GgSourceTask : SourceTask() {
 
     /**
      * Fetches the current row identified by [keyMap] (column -> value for every
-     * primary-key column). Returns null if the row has already been removed (race
-     * between the CQ notification and this SELECT); the caller skips the event.
+     * primary-key column) as a schema-bearing [RowResult]. Returns null if the row
+     * has already been removed (race between the CQ notification and this SELECT);
+     * the caller skips the event.
+     *
+     * The `correlation_id` column is lifted out of the [Struct] (it rides the Kafka
+     * record header, never the JDBC-sink-bound payload — see class doc) and returned
+     * separately on [RowResult.correlationId].
      */
-    private fun readRow(table: String, keyMap: Map<String, Any?>): Map<String, Any?>? {
+    private fun readRowStruct(table: String, keyMap: Map<String, Any?>): RowResult? {
         if (keyMap.isEmpty()) return null
         val where = keyMap.keys.joinToString(" AND ") { "$it = ?" }
         val sql = "SELECT * FROM PUBLIC.$table WHERE $where"
         val c = jdbc ?: return null
         return c.prepareStatement(sql).use { ps ->
             keyMap.values.forEachIndexed { i, v -> ps.setObject(i + 1, v) }
-            ps.executeQuery().use { rs -> if (rs.next()) rowToMap(rs) else null }
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return@use null
+                val schema = rowSchema(table, rs)
+                val struct = Struct(schema)
+                val meta = rs.metaData
+                var correlationId: String? = null
+                for (i in 1..meta.columnCount) {
+                    val col = meta.getColumnLabel(i).lowercase()
+                    val raw = rs.getObject(i)
+                    if (col == CORRELATION_FIELD) {
+                        correlationId = raw?.toString()
+                        continue
+                    }
+                    struct.put(col, coerce(raw, meta.getColumnType(i)))
+                }
+                RowResult(schema, struct, correlationId)
+            }
+        }
+    }
+
+    /**
+     * Connect value schema for a row of [table], derived once from JDBC metadata
+     * and cached. `correlation_id` is excluded (it rides the record header). The
+     * schema is `.optional()` so the envelope's `before`/`after` fields may be null
+     * (we never populate `before`, and deletes are skipped before we read).
+     */
+    private fun rowSchema(table: String, rs: ResultSet): Schema = rowSchemaByTable.getOrPut(table) {
+        val meta = rs.metaData
+        val b = SchemaBuilder.struct().name("gg.public.$table.Value").optional()
+        for (i in 1..meta.columnCount) {
+            val col = meta.getColumnLabel(i).lowercase()
+            if (col == CORRELATION_FIELD) continue
+            b.field(col, connectSchema(meta.getColumnType(i)))
+        }
+        b.build()
+    }
+
+    /**
+     * Maps a `java.sql.Types` constant to the Connect schema the JDBC sink expects.
+     * All columns are OPTIONAL so nullable columns (e.g. `transaction.product_id`)
+     * round-trip. TIMESTAMP becomes the Connect logical Timestamp type so the
+     * downstream debezium-connector-jdbc sink writes a real DB TIMESTAMP rather than
+     * an epoch-millis bigint.
+     */
+    internal fun connectSchema(jdbcType: Int): Schema = when (jdbcType) {
+        java.sql.Types.BIGINT -> Schema.OPTIONAL_INT64_SCHEMA
+        java.sql.Types.INTEGER, java.sql.Types.SMALLINT, java.sql.Types.TINYINT -> Schema.OPTIONAL_INT32_SCHEMA
+        java.sql.Types.BOOLEAN, java.sql.Types.BIT -> Schema.OPTIONAL_BOOLEAN_SCHEMA
+        java.sql.Types.DOUBLE, java.sql.Types.FLOAT, java.sql.Types.REAL,
+        java.sql.Types.DECIMAL, java.sql.Types.NUMERIC -> Schema.OPTIONAL_FLOAT64_SCHEMA
+        java.sql.Types.TIMESTAMP -> org.apache.kafka.connect.data.Timestamp.builder().optional().build()
+        else -> Schema.OPTIONAL_STRING_SCHEMA
+    }
+
+    /**
+     * Coerces a raw JDBC value into the Java type the matching [connectSchema]
+     * declares, so `Struct.put` validation passes. Connect's Timestamp logical type
+     * wants a `java.util.Date`, which `java.sql.Timestamp` already satisfies.
+     */
+    internal fun coerce(raw: Any?, jdbcType: Int): Any? {
+        if (raw == null) return null
+        return when (jdbcType) {
+            java.sql.Types.BIGINT -> (raw as Number).toLong()
+            java.sql.Types.INTEGER, java.sql.Types.SMALLINT, java.sql.Types.TINYINT -> (raw as Number).toInt()
+            java.sql.Types.BOOLEAN, java.sql.Types.BIT -> raw as Boolean
+            java.sql.Types.DOUBLE, java.sql.Types.FLOAT, java.sql.Types.REAL,
+            java.sql.Types.DECIMAL, java.sql.Types.NUMERIC -> (raw as Number).toDouble()
+            java.sql.Types.TIMESTAMP -> raw as java.util.Date
+            else -> raw.toString()
         }
     }
 
@@ -241,24 +323,51 @@ class GgSourceTask : SourceTask() {
         }
     }
 
-    private fun rowToMap(rs: ResultSet): Map<String, Any?> {
-        val meta = rs.metaData
-        val row = LinkedHashMap<String, Any?>(meta.columnCount)
-        for (i in 1..meta.columnCount) {
-            val raw = rs.getObject(i)
-            // Kafka Connect's JsonConverter can't serialize java.sql.Timestamp
-            // (or Date / Time) directly. Coerce to epoch milliseconds — matches
-            // Debezium's default temporal handling and lets the downstream
-            // debezium-connector-jdbc sinks parse it back into a DB TIMESTAMP.
-            val value: Any? = when (raw) {
-                is Timestamp -> raw.time
-                is java.sql.Date -> raw.time
-                is java.sql.Time -> raw.time
-                else -> raw
-            }
-            row[meta.getColumnLabel(i).lowercase()] = value
+    /**
+     * Debezium-shaped envelope schema for [table], cached per table. Named
+     * `*.Envelope` ON PURPOSE: the debezium-connector-jdbc sink calls
+     * `SinkRecordDescriptor.isFlattened()`, which returns false only when the value
+     * schema name ends in ".Envelope" — that branch reads `op`/`after` natively and
+     * writes only the `after` struct's fields as columns. `before` is declared (for
+     * Debezium parity) but never populated; we skip deletes upstream.
+     */
+    internal fun envelopeSchema(table: String, rowSchema: Schema): Schema =
+        envelopeSchemaByTable.getOrPut(table) {
+            SchemaBuilder.struct().name("gg.public.$table.Envelope")
+                .field("before", rowSchema)
+                .field("after", rowSchema)
+                .field("op", Schema.OPTIONAL_STRING_SCHEMA)
+                .field("ts_ms", Schema.OPTIONAL_INT64_SCHEMA)
+                .build()
         }
-        return row
+
+    /**
+     * Builds the record key [Struct] (and its cached schema) from [keyMap]. With the
+     * sink's `primary.key.mode=record_key`, these fields become the upsert key. PK
+     * columns in this data model are all BIGINT; the field type is still derived from
+     * the value so a future string/int PK works without change.
+     */
+    internal fun keyStructFor(table: String, keyMap: Map<String, Any?>): Pair<Schema, Struct> {
+        val schema = keySchemaByTable.getOrPut(table) {
+            val b = SchemaBuilder.struct().name("gg.public.$table.Key")
+            keyMap.forEach { (col, v) -> b.field(col, keyFieldSchema(v)) }
+            b.build()
+        }
+        val struct = Struct(schema)
+        keyMap.forEach { (col, v) -> struct.put(col, coerceKeyValue(v)) }
+        return schema to struct
+    }
+
+    private fun keyFieldSchema(v: Any?): Schema = when (v) {
+        is Long -> Schema.INT64_SCHEMA
+        is Int -> Schema.INT32_SCHEMA
+        is Boolean -> Schema.BOOLEAN_SCHEMA
+        else -> Schema.STRING_SCHEMA
+    }
+
+    private fun coerceKeyValue(v: Any?): Any? = when (v) {
+        is Long, is Int, is Boolean -> v
+        else -> v?.toString()
     }
 
     override fun stop() {
@@ -273,6 +382,17 @@ class GgSourceTask : SourceTask() {
         val opType: String,
         val key: Any,
         val tsMs: Long,
+    )
+
+    /**
+     * A row read back from GG as a Connect [Struct], with its [schema] and the
+     * (header-bound, non-payload) `correlation_id` lifted out. [correlationId] is
+     * null when the row carries no correlation id (e.g. a mainframe-originated row).
+     */
+    private data class RowResult(
+        val schema: Schema,
+        val after: Struct,
+        val correlationId: String?,
     )
 
     companion object {
