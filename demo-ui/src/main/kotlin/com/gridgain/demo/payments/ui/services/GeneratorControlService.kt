@@ -128,6 +128,17 @@ class GeneratorControlService(private val config: UiConfig) {
             ?: scenario.putObject("rate").also { it.put("kind", "constant") }
         rate.put("ops_per_second", perPodOps)
 
+        // Run CONTINUOUSLY. The canonical scenario caps at PT10M, but a distributed Deployment pod
+        // that finishes its scenario EXITS and is restarted by k8s — producing ~10-min throughput
+        // pulses with dead gaps (restart + reconnect + ramp), which also drags the sustained rate
+        // down. Override to a long duration so each pod runs until the presenter stops the load
+        // (which tears the Deployment down by label). The pod is single-threaded, so a load run is
+        // bounded by pod count, not duration.
+        val duration = scenario.get("duration") as? ObjectNode
+            ?: scenario.putObject("duration").also { it.put("kind", "time") }
+        duration.put("kind", "time")
+        duration.put("value", LOAD_DURATION)
+
         val distribution = scenario.putObject("distribution")
         distribution.put("replicas", replicas)
         distribution.put("partition_count", partitionCount)
@@ -209,6 +220,10 @@ class GeneratorControlService(private val config: UiConfig) {
         const val MAX_REPLICAS = 64
         const val DEFAULT_PARTITION_COUNT = 64
         const val STOP_TIMEOUT_SECONDS = 30L
+
+        // ISO-8601 duration for a manual load run: long enough to be "continuous" for any demo or
+        // load test (the presenter stops it explicitly via Off, which tears the Deployment down).
+        const val LOAD_DURATION = "PT24H"
 
         fun ceilDiv(a: Int, b: Int): Int = (a + b - 1) / b
     }
