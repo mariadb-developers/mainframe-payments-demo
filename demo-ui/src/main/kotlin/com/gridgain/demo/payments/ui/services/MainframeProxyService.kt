@@ -164,8 +164,8 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
             val newTxId = ThreadLocalRandom.current().nextLong(10_000, 1_000_000_000)
             c.prepareStatement(
                 """
-                INSERT INTO transaction (transaction_id, account_id, product_id, amount, type)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO transaction (transaction_id, account_id, product_id, amount, type, source)
+                VALUES (?, ?, ?, ?, ?, 'mf')
                 """.trimIndent(),
             ).use { ps ->
                 ps.setLong(1, newTxId)
@@ -176,8 +176,12 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
                 ps.executeUpdate()
             }
             val delta = if (template.type == "PURCHASE") -template.amountCents else template.amountCents
+            // Re-stamp source='mf': this is a mainframe-originated change. If the account was last
+            // touched by a GG transaction (source='gg', written back via the GG→Postgres sink in
+            // phase 3), leaving it 'gg' makes the cdc-sink's source.filter=mf DROP this update, so
+            // GG's balance never reflects the mainframe payment (phase 4).
             val balanceAfter = c.prepareStatement(
-                "UPDATE account SET balance = balance + ? WHERE account_id = ? RETURNING balance",
+                "UPDATE account SET balance = balance + ?, source = 'mf' WHERE account_id = ? RETURNING balance",
             ).use { ps ->
                 ps.setLong(1, delta)
                 ps.setLong(2, template.accountId)
