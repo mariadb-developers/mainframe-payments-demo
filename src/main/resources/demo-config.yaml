@@ -88,6 +88,17 @@ node_pool_templates:
     gke_enable_autorepair: true
     gke_enable_autoupgrade: false
     gke_enable_ip_alias: true
+  monitor-gke-pool:
+    # Prometheus + Grafana (dev/operator observability — see monitors.pg-gke).
+    # Its own pool so the monitor doesn't contend with GG / DB / CDC workloads.
+    platform: gke
+    gke_machine_type: e2-standard-4
+    gke_disk_type: pd-standard
+    gke_disk_size: 20GB
+    gke_local_ssd_count: 0
+    gke_enable_autorepair: true
+    gke_enable_autoupgrade: false
+    gke_enable_ip_alias: true
 
 # ──────────────────────────────────────────────────────────────────────
 # Cluster (single GG8 cluster — GG9 variant deferred per CLAUDE.md §15)
@@ -190,6 +201,11 @@ clusters:
       - data-model/payments-schema.yaml
     base_data: []
     dcr_data_center_id: 1
+    # Export GG8 metrics (cache latency/throughput, JVM, partitions) to the
+    # prometheus-grafana monitor via an in-cluster OpenTelemetry collector.
+    monitoring:
+      pg-gke:
+        connector_template: gke-otel-collector
 
 # ──────────────────────────────────────────────────────────────────────
 # Databases — non-GridGain stores plumbed via the new `databases`
@@ -486,3 +502,68 @@ images:
     tag: 0.5.1-SNAPSHOT
     pull_policy: Always
     gridgain_major_version: 8
+
+# ──────────────────────────────────────────────────────────────────────
+# Observability (dev/operator, NOT audience-facing) — Prometheus + Grafana
+# scrape GG8 metrics via an in-cluster OpenTelemetry collector. Its own
+# namespace + node pool; separate from the 3-panel demo UI. Control Center
+# stays out (CLAUDE.md §15) — this is the lighter, OSS perf-diagnostics path
+# (§16). Deploy with `deployMonitor`; tear down with `teardownMonitor`.
+# ──────────────────────────────────────────────────────────────────────
+connector_templates:
+  gke-otel-collector:
+    type: otel-collector
+    platform: gke
+    k8s_node_pool_template: default-gke-pool
+    k8s_service_name: otel-collector-svc
+    k8s_http_listener_port: 4318
+    k8s_app_tag: otel-collector
+    k8s_replicas: 1
+    k8s_listener_port: 4317
+    k8s_cpu_request: 250m
+    k8s_memory_request: 256Mi
+    k8s_cpu_limit: 500m
+    k8s_memory_limit: 512Mi
+    k8s_job_cpu_request: 100m
+    k8s_job_memory_request: 128Mi
+    k8s_job_cpu_limit: 250m
+    k8s_job_memory_limit: 256Mi
+    export_period_millis: 5000
+
+monitors:
+  pg-gke:
+    type: prometheus-grafana
+    infrastructure: mainframe-payments-gke
+    num_nodes: 1
+    min_nodes: 1
+    max_nodes: 3
+    k8s_namespace: gg-prometheus-grafana
+    k8s_node_pool_template: monitor-gke-pool
+    prometheus:
+      image: prom/prometheus:v3.4.1
+      replicas: 1
+      scrape_port: 9090
+      resources:
+        cpu_request: 500m
+        memory_request: 1Gi
+        cpu_limit: 2000m
+        memory_limit: 4Gi
+    grafana:
+      image: grafana/grafana:11.6.0
+      replicas: 1
+      ui_port: 3000
+      resources:
+        cpu_request: 100m
+        memory_request: 256Mi
+        cpu_limit: 500m
+        memory_limit: 512Mi
+    include_overview_dashboard: true
+    dashboards: []
+    storage:
+      retain_on_destroy: false
+      disk_type: pd-standard
+      prometheus_storage_size: 20Gi
+    timeouts:
+      statefulset: 300
+      deployment: 300
+      load_balancer: 300
