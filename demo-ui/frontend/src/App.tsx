@@ -97,9 +97,15 @@ export default function App() {
   // when the tailer that signals "your backing store was just written" ticks,
   // the corresponding panel re-fetches. No polling, no fixed delay; the UI
   // refreshes exactly when the data actually lands in each system.
+  // High-load flag, driven by the LoadSlider (true while the generator runs, which is
+  // only possible in phase 6). Under load the GG→Postgres / GG→MariaDB tailers are hidden
+  // and their streams disabled — those stores aren't scaled for the run (CLAUDE.md §3/§5).
+  const [loadActive, setLoadActive] = useState(false)
+  const onLoadRunningChange = useCallback((running: boolean) => setLoadActive(running), [])
+
   const cdcStream = useTailerWebSocket('cdc')
-  const ggToPostgresStream = useTailerWebSocket('gg-to-postgres')
-  const ggToMariadbStream = useTailerWebSocket('gg-to-mariadb')
+  const ggToPostgresStream = useTailerWebSocket('gg-to-postgres', !loadActive)
+  const ggToMariadbStream = useTailerWebSocket('gg-to-mariadb', !loadActive)
 
   // Generator throughput + GridGain execution latency for the phase-6 graphs (top-right).
   const metricsStream = useMetricsWebSocket()
@@ -288,7 +294,7 @@ export default function App() {
           <span className="text-xs uppercase tracking-wider text-surface-500">MariaDB · GridGain · Mainframe</span>
         </div>
         <div className="flex items-center gap-6">
-          <LoadSlider enabled={v.loadSlider} />
+          <LoadSlider enabled={v.loadSlider} onRunningChange={onLoadRunningChange} />
           <PhaseControl phase={phase} onChange={setPhase} />
           <ResetButton onReset={onReset} />
         </div>
@@ -333,11 +339,17 @@ export default function App() {
                 />
               ) : undefined,
             },
-            { id: 'gg-to-postgres', label: 'GG → Mainframe', visible: v.ggToPostgresTailer },
+            {
+              id: 'gg-to-postgres',
+              label: 'GG → Mainframe',
+              visible: v.ggToPostgresTailer,
+              suppressed: loadActive,
+            },
             {
               id: 'gg-to-mariadb',
               label: 'GG → MariaDB',
               visible: v.ggToMariaTailer,
+              suppressed: loadActive,
               appliedState: beatState(mariaBeatActive, mariaFeedLive),
               topControls: mariaBeatActive ? (
                 <BringOnlineControls

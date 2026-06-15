@@ -10,8 +10,13 @@ const MAX_BUFFER = 50
  *
  * Connection retries on close with a small backoff so the UI survives backend
  * restarts during demo dev.
+ *
+ * `enabled` (default true) gates the subscription: when false the socket is
+ * closed and no reconnect is attempted. The GG→Postgres / GG→MariaDB streams are
+ * disabled under high load — those stores aren't scaled for the load run, so their
+ * panels are hidden and there's no reason to keep streaming (CLAUDE.md §3/§5).
  */
-export function useTailerWebSocket(source: string) {
+export function useTailerWebSocket(source: string, enabled: boolean = true) {
   const [events, setEvents] = useState<TailerEvent[]>([])
   const [connected, setConnected] = useState(false)
   // Events/sec on this path, measured from client-side arrival times over a 1s window. Decays
@@ -32,6 +37,13 @@ export function useTailerWebSocket(source: string) {
   }, [])
 
   useEffect(() => {
+    if (!enabled) {
+      // Stream disabled (e.g. under high load) — make sure any open socket is closed
+      // and skip connecting. Flipping `enabled` back to true re-runs this effect and
+      // reconnects. The in-memory event buffer is left intact.
+      setConnected(false)
+      return
+    }
     let cancelled = false
     function connect() {
       if (cancelled) return
@@ -68,7 +80,7 @@ export function useTailerWebSocket(source: string) {
       if (reconnectRef.current) window.clearTimeout(reconnectRef.current)
       wsRef.current?.close()
     }
-  }, [source])
+  }, [source, enabled])
 
   // Empties the in-memory buffer without dropping the WebSocket — used on demo
   // reset so the Mainframe→GG window starts the phase-2 beat clean (the reseed

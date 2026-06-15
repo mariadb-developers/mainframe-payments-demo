@@ -28,6 +28,10 @@ export interface TailerSource {
   visible: boolean
   appliedState?: AppliedState
   topControls?: ReactNode
+  // When true, the window is replaced with a "Not displayed under high load" placeholder
+  // (CLAUDE.md §3/§5) — used for the GG→Postgres / GG→MariaDB feeds while the generator runs,
+  // since those stores aren't scaled for the load run and their streams are disabled.
+  suppressed?: boolean
 }
 
 /** id→name maps so the tailer can show audience-friendly text (customer/product
@@ -115,6 +119,7 @@ export function ConnectorTailers({
             key={s.id}
             label={s.label}
             visible={s.visible}
+            suppressed={s.suppressed ?? false}
             stream={streams[s.id]}
             highlightedCorrelationId={highlightedCorrelationId}
             appliedState={s.appliedState ?? 'normal'}
@@ -129,6 +134,7 @@ export function ConnectorTailers({
 function SingleTailer({
   label,
   visible,
+  suppressed,
   stream,
   highlightedCorrelationId,
   appliedState,
@@ -136,6 +142,7 @@ function SingleTailer({
 }: {
   label: string
   visible: boolean
+  suppressed: boolean
   stream: TailerStream | undefined
   highlightedCorrelationId: string | null
   appliedState: AppliedState
@@ -157,6 +164,18 @@ function SingleTailer({
 
   if (!visible) {
     return <div className="bg-surface-900/50 border border-dashed border-surface-700/40 rounded h-24"></div>
+  }
+
+  // Under high load the GG→Postgres / GG→MariaDB windows are intentionally hidden: those
+  // stores aren't scaled for the load run and their streams are disabled (CLAUDE.md §3/§5).
+  if (suppressed) {
+    return (
+      <div className="bg-surface-900/50 border border-dashed border-surface-700/40 rounded h-24 flex items-center justify-center px-3">
+        <div className="text-[11px] font-mono uppercase tracking-wider text-surface-500 text-center">
+          Not displayed under high load
+        </div>
+      </div>
+    )
   }
 
   return (

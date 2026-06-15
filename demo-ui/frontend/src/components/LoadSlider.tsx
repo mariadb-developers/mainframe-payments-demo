@@ -14,7 +14,15 @@ const MAX_PODS = 8
 // settles — not on every slider tick.
 const COMMIT_DEBOUNCE_MS = 700
 
-export function LoadSlider({ enabled }: { enabled: boolean }) {
+export function LoadSlider({
+  enabled,
+  onRunningChange,
+}: {
+  enabled: boolean
+  // Notifies the App when the generator starts/stops, so it can hide + unsubscribe the
+  // GG→Postgres / GG→MariaDB tailers under load (those stores aren't scaled for the run).
+  onRunningChange?: (running: boolean) => void
+}) {
   const [target, setTarget] = useState(0)
   const [pods, setPods] = useState(1)
   const [running, setRunning] = useState(false)
@@ -58,6 +66,10 @@ export function LoadSlider({ enabled }: { enabled: boolean }) {
       if (timer.current) clearTimeout(timer.current)
     }
   }, [target, pods])
+
+  useEffect(() => {
+    onRunningChange?.(running)
+  }, [running, onRunningChange])
 
   const perPod = pods > 0 ? Math.ceil(target / pods) : 0
 
