@@ -1,6 +1,6 @@
 package com.gridgain.demo.payments.ui.routes
 
-import com.gridgain.demo.payments.ui.model.GeneratorRate
+import com.gridgain.demo.payments.ui.model.SetLoadRequest
 import com.gridgain.demo.payments.ui.services.GeneratorControlService
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -14,16 +14,12 @@ fun Route.generatorRoutes(service: GeneratorControlService) {
         get {
             call.respond(service.state())
         }
+        // Manual load control (CLAUDE.md §3/§10): total target ops/sec across all pods
+        // (0 = off) plus pod count. The service splits the total across pods and
+        // (re)launches the distributed run, tearing down any prior run first.
         post("/rate") {
-            val body = call.receive<Map<String, String>>()
-            val rate = body["rate"]?.uppercase()
-                ?: throw IllegalArgumentException("Body must include 'rate' (OFF|SLOW|MEDIUM|FAST)")
-            val parsed = runCatching { GeneratorRate.valueOf(rate) }.getOrElse {
-                throw IllegalArgumentException(
-                    "Unknown rate '$rate'. Expected one of: ${GeneratorRate.values().joinToString { it.name }}",
-                )
-            }
-            call.respond(service.setRate(parsed))
+            val body = call.receive<SetLoadRequest>()
+            call.respond(service.setLoad(body.targetOpsPerSecond, body.replicas))
         }
     }
 }

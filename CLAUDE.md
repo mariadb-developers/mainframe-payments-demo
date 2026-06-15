@@ -111,7 +111,7 @@ Note: GG→Postgres write-through is live from phase 3 (no beat) so the mainfram
 
 **Phase-5 bring-online sub-flow.** Phase 5 mirrors phase 2 for MariaDB, with the dump coming **from GridGain**: three buttons above the GG → MariaDB window — **Bulk Dump** (capture + hold a GG snapshot), **Bulk Load** (apply the held snapshot to MariaDB), then **Unpause Event Feed** (resume the GG→MariaDB sink). The window styles events two-tone (queued/applied) during the beat. The presenter proves it with the MariaDB panel's analytic queries run before/after, firing transactions in both the Mainframe and GridGain panels to show MariaDB unifies both sources. The pause/resume targets the **real GG→MariaDB JDBC sink by name** (`PAYMENTS_MARIADB_SINK_CONNECTOR`); that sink is a toolkit deliverable still in progress, so until it lands Unpause surfaces a "connector not found" error while **Bulk Load works regardless**.
 
-**Generator control.** The phase-6 slider is a discrete, stepped control: **off** / **slow** / **medium** / **fast**. Each step stops the running scenario and restarts it at the new rate. See §10 for the rationale; live, in-flight rate change is deferred to §16.
+**Generator control.** The phase-6 control is **manual**: a continuous slider (with an exact numeric input) sets the **total** target write rate in ops/sec, and a **pods** stepper sets how many generator pods run. The backend splits the total across pods and (re)launches a distributed run; adding pods is the real lever for saturating GG, since a single pod is capped by GG round-trip latency. Each change first stops any running generator **by k8s label** (so runs never pile up), then relaunches at the new load — see §10. The earlier off/slow/medium/fast stepped slider was removed: it passed a gradle property the plugin never read, so it never varied the load. Truly live, in-flight rate change (no relaunch) is deferred to §16.
 
 **Animation policy.** Real-time per-event animation is the default. When generator rate exceeds renderer capacity (a threshold the implementer picks), the UI switches to a "constant" animation mode — a continuous flow stream — rather than dropping frames.
 
@@ -283,7 +283,7 @@ Some customers in the curated list have multiple transactions so the analytics q
 
 **Tailer interaction at phase 5.** Generator-produced transactions land in GG, fan out to both write-through paths, and therefore appear in the GG→Postgres and GG→MariaDB tailers (§5) carrying correlation ids (§7). Correlation co-highlighting may be subtle at top rates — at high volume the tailer's job is to convey rate, not individual events; the rolling buffer auto-prunes per §5.
 
-**Rate control: stepped.** The phase-5 slider exposes four discrete steps — **off**, **slow**, **medium**, **fast**. Each step stops the running scenario (if any) and restarts it at the new rate. The brief gap between steps is acceptable for the demo's audience pacing. The exact ops/sec for slow / medium / fast is calibrated during implementation based on cluster size and observable animation behavior. Live, in-flight rate change is `designed, deferred` (§16 Future Work).
+**Rate control: manual.** The phase-6 control sets the **total** target write rate (continuous slider + exact numeric input, 0 = off) and a **pod count**. The plugin reads the generator rate only from the ops file (there is no `dataGenerate` rate-override property), so the demo backend (`GeneratorControlService`) templates a *runtime* `ops.yaml` — the canonical scenario with `rate.ops_per_second` set to ceil(total / pods) and an injected `distribution: {replicas, partition_count}` block — and invokes `dataGenerate --ops=<runtime file>`. The plugin then dispatches a Deployment of N worker pods (each single-threaded; it does **not** divide the rate across pods, which is why the backend pre-divides). Distributed mode is also fire-and-forget — `dataGenerate` returns once the Deployment is Ready, so the UI stays responsive. Each change first tears down any prior run with `kubectl delete deployment,configmap,serviceaccount,role,rolebinding -l gridgain.com/scenario=<scenario>`, so runs never pile up (the old best-effort stop left orphaned Jobs accumulating, and never actually changed the load). Truly live, in-flight rate change (adjusting a running generator without relaunch) is `designed, deferred` (§16 Future Work).
 
 ---
 
@@ -361,7 +361,7 @@ Default stance for v1: failures during the live demo are not handled gracefully.
 - Multi-region active-active variant with cross-region DCR.
 - Additional analytics queries on the MariaDB panel (top-spenders, trend analysis, anomaly flagging).
 - Presenter "reset" controls (per §14).
-- Live, in-flight generator rate change, replacing the phase-5 stepped slider with a continuous control.
+- Truly live, in-flight generator rate change — adjusting the rate of a running generator without relaunching the distributed run (today each change tears down and relaunches). A first-class `dataGenerate --rate` / `--replicas` override in the plugin would also let the demo backend skip templating a runtime `ops.yaml` + `--ops`.
 - Kafka promoted to its own plugin element type if a second demo needs it outside the CDC context.
 - Pause / scrub controls on the connector tailers (§5) so presenters can stop the rolling feed and point at specific events.
 - Tailer session recording — persist the event streams during a demo run so they can be replayed for training or post-demo analysis.
@@ -375,7 +375,7 @@ All v1 design blockers identified during planning are resolved:
 - **UI → data path** (§5): single Ktor backend owned by this demo, mirroring the [gridgain-demo-ui](gridgain-demo-ui/) backend pattern.
 - **Animation approach** (§5): SVG `<path>` animation via `stroke-dashoffset` on a `requestAnimationFrame` loop; no animation library.
 - **CDC technology** (§7): Debezium + Apache Kafka, both packaged under the new `cdc_connectors` plugin element type.
-- **Generator rate control** (§10): stepped — off / slow / medium / fast — with scenario restart between steps. Live, in-flight rate change deferred to §16.
+- **Generator rate control** (§10): manual — a continuous total-ops/sec slider + numeric input + pod-count stepper; the backend templates a runtime `ops.yaml` (rate + `distribution`) and relaunches a distributed run, stopping prior runs by k8s label. Truly in-flight (no-relaunch) rate change deferred to §16.
 - **CDC offsets persistence** (§12): Kafka offset topic as source of truth, mirrored to `demoOutputDirectory/cdc-connectors/state/state.yaml`.
 
 No outstanding blockers for v1 implementation. This section is retained as a landing spot for blockers raised by future iterations.

@@ -1,6 +1,5 @@
 package com.gridgain.demo.payments.ui.services
 
-import com.gridgain.demo.payments.ui.model.GeneratorRate
 import org.slf4j.LoggerFactory
 
 /**
@@ -66,7 +65,7 @@ class DemoResetService(
             }
         }
 
-        step("generator stop")     { generatorService.setRate(GeneratorRate.OFF) }
+        step("generator stop")     { generatorService.setLoad(0, 1) }
         step("phase to 0")         { phaseService.reset() }
         // Drop any snapshot held between a dump and load, so each beat re-dumps fresh.
         step("clear bulk dumps")   { bulkLoadService.clear(); mariaBulkLoadService.clear() }

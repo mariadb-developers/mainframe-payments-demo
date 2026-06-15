@@ -21,6 +21,7 @@ data class UiConfig(
     val projectDirectory: Path,
     val metricsTopic: String,
     val generatorScenario: String,
+    val generatorNamespace: String,
 ) {
     companion object {
         fun fromEnvironment(): UiConfig {
@@ -72,6 +73,11 @@ data class UiConfig(
                 // The scenario name dataGenerate runs (ops.yaml scenarios[].name). dataGenerate
                 // requires --scenario, so GeneratorControlService passes this.
                 generatorScenario = env("PAYMENTS_GENERATOR_SCENARIO", "mainframe-payments-load"),
+                // The k8s namespace the distributed generator Deployment lands in (the target GG
+                // cluster's namespace). GeneratorControlService deletes prior runs here on a clean
+                // stop via `kubectl delete -l gridgain.com/scenario=<scenario>`. Defaults to the
+                // GG cluster namespace; matches clusterName for this demo.
+                generatorNamespace = env("PAYMENTS_GENERATOR_NAMESPACE", "mainframe-payments-gg8"),
             )
         }
 

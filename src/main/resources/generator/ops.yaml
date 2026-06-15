@@ -15,9 +15,12 @@ metrics:
   interval_ms: 1000
 
 scenarios:
-  # The phase-5 load scenario. The UI's stepped slider re-runs this scenario
-  # with different `ops_per_second` values (off/slow/medium/fast) via the
-  # demo-ui backend's GeneratorControlService (per CLAUDE.md §10).
+  # The phase-6 load scenario. This is the CANONICAL single-source-of-truth ops file.
+  # The demo-ui backend (GeneratorControlService) does NOT run it directly for the load
+  # control — it reads this file, overrides `rate.ops_per_second` (to total/pods) and
+  # injects a `distribution: {replicas, partition_count}` block, writes a runtime copy
+  # to demoOutputDirectory, and invokes `dataGenerate --ops=<runtime copy>` (per CLAUDE.md
+  # §10). Running this file as-is via the CLI is single-pod, blocking mode.
   - name: mainframe-payments-load
     target: mainframe-payments-gg8
     root_schemas: [customer]

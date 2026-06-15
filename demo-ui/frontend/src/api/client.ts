@@ -6,7 +6,6 @@ import type {
   CdcFeedStateResponse,
   CustomerSummary,
   CuratedTransaction,
-  GeneratorRate,
   GeneratorState,
   PhaseState,
   ProductSummary,
@@ -78,7 +77,13 @@ export const phaseApi = {
 
 export const generatorApi = {
   state: () => getJson<GeneratorState>('/api/generator'),
-  setRate: (rate: GeneratorRate) => postJson<GeneratorState>('/api/generator/rate', { rate }),
+  // Total target ops/sec across all pods (0 = off) + pod count. The backend splits the
+  // total across pods and (re)launches the distributed run, stopping any prior run first.
+  setLoad: (targetOpsPerSecond: number, replicas: number) =>
+    postJson<GeneratorState>('/api/generator/rate', {
+      target_ops_per_second: targetOpsPerSecond,
+      replicas,
+    }),
 }
 
 export const demoApi = {

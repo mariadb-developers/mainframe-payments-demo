@@ -61,11 +61,12 @@ export interface TailerEvent {
   payload: Record<string, unknown>
 }
 
-export type GeneratorRate = 'OFF' | 'SLOW' | 'MEDIUM' | 'FAST'
-
+// Manual load control (CLAUDE.md §3/§10): total target ops/sec across all pods
+// (0 = off) and the pod count. Mirrors com.gridgain.demo.payments.ui.model.GeneratorState.
 export interface GeneratorState {
-  rate: GeneratorRate
-  run_id: string | null
+  target_ops_per_second: number
+  replicas: number
+  running: boolean
 }
 
 // Live throughput + GridGain execution latency from the data generator, streamed over

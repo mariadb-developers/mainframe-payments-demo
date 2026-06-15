@@ -78,14 +78,25 @@ data class TailerEvent(
     val payload: Map<String, Any?>,
 )
 
-enum class GeneratorRate(val opsPerSecond: Int) {
-    OFF(0),
-    SLOW(2),
-    MEDIUM(20),
-    FAST(200),
-}
-
+/**
+ * Manual load control for the data generator (CLAUDE.md §3/§10). The stepped
+ * off/slow/medium/fast presets are gone — the presenter now sets the load directly:
+ *
+ *  - [targetOpsPerSecond] is the **total** target write rate across all pods (0 = off).
+ *  - [replicas] is the number of generator pods. Each pod is single-threaded, so a
+ *    single pod's throughput is capped by GG round-trip latency; the lever for
+ *    genuinely saturating GG is adding pods, not just raising the per-pod rate.
+ *    The backend splits the total across pods (per-pod = ceil(total / replicas)).
+ *  - [running] reflects whether a distributed generator run is currently dispatched.
+ */
 data class GeneratorState(
-    val rate: GeneratorRate,
-    val runId: String?,
+    val targetOpsPerSecond: Int,
+    val replicas: Int,
+    val running: Boolean,
+)
+
+/** Body of POST /api/generator/rate. Snake_case maps via Ktor's Jackson naming strategy. */
+data class SetLoadRequest(
+    val targetOpsPerSecond: Int,
+    val replicas: Int,
 )
