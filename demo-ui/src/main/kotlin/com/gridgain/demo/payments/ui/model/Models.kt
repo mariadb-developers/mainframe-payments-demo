@@ -100,3 +100,18 @@ data class SetLoadRequest(
     val targetOpsPerSecond: Int,
     val replicas: Int,
 )
+
+/** A Kafka Connect task currently in FAILED state (connector still RUNNING but applying nothing). */
+data class FailedTaskRef(
+    val connector: String,
+    val task: Int,
+)
+
+/**
+ * Health of the demo's Kafka Connect connectors. The UI polls this so a sink whose task has
+ * died (e.g. a stale idle JDBC connection the DB dropped) is visible rather than silently
+ * applying nothing — the tailer "live" badge reflects the browser↔backend socket, not the sink.
+ */
+data class ConnectorHealth(
+    val failedTasks: List<FailedTaskRef>,
+)

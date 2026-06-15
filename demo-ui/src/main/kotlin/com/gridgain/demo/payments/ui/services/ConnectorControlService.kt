@@ -1,6 +1,7 @@
 package com.gridgain.demo.payments.ui.services
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.gridgain.demo.payments.ui.model.FailedTaskRef
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -153,6 +154,35 @@ class ConnectorControlService(
         }
 
         /**
+         * List every FAILED task across ALL deployed connectors (connector RUNNING but a task dead).
+         * Best-effort; returns empty on any error so a health poll never throws.
+         */
+        fun listFailedTasks(
+            connectBaseUrl: String,
+            http: HttpClient = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build(),
+        ): List<FailedTaskRef> =
+            try {
+                val req = HttpRequest.newBuilder()
+                    .uri(URI.create("$connectBaseUrl/connectors?expand=status"))
+                    .timeout(REQUEST_TIMEOUT).GET().build()
+                val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+                if (resp.statusCode() !in 200..299) {
+                    emptyList()
+                } else {
+                    buildList {
+                        mapper.readTree(resp.body()).fields().forEach { (name, info) ->
+                            info.path("status").path("tasks").forEach { t ->
+                                if (t.path("state").asText("") == "FAILED") add(FailedTaskRef(name, t.path("id").asInt()))
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                healLog.warn("Could not list failed connector tasks via {}: {}", connectBaseUrl, e.message)
+                emptyList()
+            }
+
+        /**
          * Restart every FAILED task across ALL deployed connectors. Used at demo reset so a sink
          * that died while the cluster idled between demos (a stale JDBC connection the DB dropped)
          * is healed before the run starts — covers connectors the demo never pauses/resumes (e.g.
@@ -161,39 +191,26 @@ class ConnectorControlService(
         fun restartAllFailedTasks(
             connectBaseUrl: String,
             http: HttpClient = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build(),
-        ): Int =
-            try {
-                val req = HttpRequest.newBuilder()
-                    .uri(URI.create("$connectBaseUrl/connectors?expand=status"))
-                    .timeout(REQUEST_TIMEOUT).GET().build()
-                val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
-                if (resp.statusCode() !in 200..299) {
-                    0
-                } else {
-                    var count = 0
-                    mapper.readTree(resp.body()).fields().forEach { (name, info) ->
-                        info.path("status").path("tasks").forEach { t ->
-                            if (t.path("state").asText("") == "FAILED") {
-                                val id = t.path("id").asInt()
-                                val rr = http.send(
-                                    HttpRequest.newBuilder()
-                                        .uri(URI.create("$connectBaseUrl/connectors/$name/tasks/$id/restart"))
-                                        .timeout(REQUEST_TIMEOUT).POST(HttpRequest.BodyPublishers.noBody()).build(),
-                                    HttpResponse.BodyHandlers.ofString(),
-                                )
-                                if (rr.statusCode() in 200..299) {
-                                    count++
-                                    healLog.info("reset heal: restarted FAILED task {} of connector '{}'", id, name)
-                                }
-                            }
-                        }
+        ): Int {
+            var count = 0
+            listFailedTasks(connectBaseUrl, http).forEach { ft ->
+                try {
+                    val rr = http.send(
+                        HttpRequest.newBuilder()
+                            .uri(URI.create("$connectBaseUrl/connectors/${ft.connector}/tasks/${ft.task}/restart"))
+                            .timeout(REQUEST_TIMEOUT).POST(HttpRequest.BodyPublishers.noBody()).build(),
+                        HttpResponse.BodyHandlers.ofString(),
+                    )
+                    if (rr.statusCode() in 200..299) {
+                        count++
+                        healLog.info("reset heal: restarted FAILED task {} of connector '{}'", ft.task, ft.connector)
                     }
-                    count
+                } catch (e: Exception) {
+                    healLog.warn("restart of {}:{} failed: {}", ft.connector, ft.task, e.message)
                 }
-            } catch (e: Exception) {
-                healLog.warn("Could not restart failed connector tasks via {}: {}", connectBaseUrl, e.message)
-                0
             }
+            return count
+        }
 
         /**
          * Maps a Kafka Connect `/connectors/{name}/status` body to a [FeedState].

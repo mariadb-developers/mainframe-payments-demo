@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { cdcApi, gridGainApi, mainframeApi, mariaDbApi, phaseApi } from '@/api/client'
 import { BringOnlineControls } from '@/components/BringOnlineControls'
+import { ConnectorHealthPill } from '@/components/ConnectorHealthPill'
 import { ConnectorTailers, useLatestCorrelationId } from '@/components/ConnectorTailers'
 import type { AppliedState, Lookups } from '@/components/ConnectorTailers'
 import { GridGainPanel } from '@/components/GridGainPanel'
@@ -294,6 +295,7 @@ export default function App() {
           <span className="text-xs uppercase tracking-wider text-surface-500">MariaDB · GridGain · Mainframe</span>
         </div>
         <div className="flex items-center gap-6">
+          <ConnectorHealthPill />
           <LoadSlider enabled={v.loadSlider} onRunningChange={onLoadRunningChange} />
           <PhaseControl phase={phase} onChange={setPhase} />
           <ResetButton onReset={onReset} />

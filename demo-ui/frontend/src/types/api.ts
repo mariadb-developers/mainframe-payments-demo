@@ -101,3 +101,9 @@ export interface BulkLoadResult {
 export interface ResetSummary {
   steps: ResetStep[]
 }
+
+// Kafka Connect health — a FAILED task means the connector is RUNNING but applying nothing
+// (e.g. a sink whose DB connection went stale). Polled by the header health pill.
+export interface ConnectorHealth {
+  failed_tasks: { connector: string; task: number }[]
+}

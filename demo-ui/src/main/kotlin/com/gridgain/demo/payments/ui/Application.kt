@@ -174,6 +174,15 @@ fun Application.configureRouting(config: UiConfig) {
             generatorRoutes(generatorService)
             bringOnlineRoutes(cdcSinkControlService, bulkLoadService, mariaSinkControlService, mariaBulkLoadService)
             demoRoutes(resetService)
+            // Connector health for the UI's warning pill — surfaces any FAILED Connect task
+            // (connector RUNNING but applying nothing) so a dead sink isn't silent.
+            get("/connectors/health") {
+                call.respond(
+                    com.gridgain.demo.payments.ui.model.ConnectorHealth(
+                        failedTasks = ConnectorControlService.listFailedTasks(config.kafkaConnectUrl),
+                    ),
+                )
+            }
             get("/health") {
                 call.respond(mapOf("status" to "ok"))
             }

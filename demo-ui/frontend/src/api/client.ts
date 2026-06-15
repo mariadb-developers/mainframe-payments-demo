@@ -4,6 +4,7 @@ import type {
   AnalyticQueryResult,
   BulkLoadResult,
   CdcFeedStateResponse,
+  ConnectorHealth,
   CustomerSummary,
   CuratedTransaction,
   GeneratorState,
@@ -88,6 +89,10 @@ export const generatorApi = {
 
 export const demoApi = {
   reset: () => postJson<ResetSummary>('/api/demo/reset', {}),
+}
+
+export const connectorsApi = {
+  health: () => getJson<ConnectorHealth>('/api/connectors/health'),
 }
 
 // Phase-2 "bring GridGain online" beat (CLAUDE.md §2): pause/resume the cdc-sink

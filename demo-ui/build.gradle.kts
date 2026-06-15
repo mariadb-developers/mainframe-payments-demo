@@ -91,6 +91,13 @@ application {
         "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
         "--add-opens=java.base/java.math=ALL-UNNAMED",
         "--add-opens=java.base/javax.management=ALL-UNNAMED",
+        // Run in UTC so JDBC timestamp conversions match the data stores. Postgres, GG, and
+        // MariaDB all store naive timestamps in UTC (their pods + sessions are UTC) and the
+        // in-cluster Kafka Connect sinks write UTC. With the backend JVM in the laptop's local
+        // zone, MariaDB Connector/J converts those UTC datetimes to local on read, so the
+        // analytics panel showed times 7h off the actual events (and off the UTC tailers).
+        // Pinning the JVM to UTC keeps every read/write in one frame.
+        "-Duser.timezone=UTC",
     )
 }
 
