@@ -58,8 +58,45 @@ class ConnectorControlService(
     /** Pauses the connector so events buffer in Kafka instead of landing in the target. */
     fun pause(): FeedState = putAction("pause")
 
-    /** Resumes the connector; the buffered Kafka backlog drains to the target from the committed offset. */
-    fun resume(): FeedState = putAction("resume")
+    /**
+     * Resumes the connector; the buffered Kafka backlog drains to the target from the committed
+     * offset. Also restarts any FAILED task: un-pausing does NOT clear a FAILED task, and Kafka
+     * Connect leaves a task that hit an unrecoverable error (e.g. a stale idle JDBC connection the
+     * DB dropped while the cluster sat between demos) in FAILED indefinitely while the connector
+     * still shows RUNNING — applying nothing, silently breaking the "no events lost" reconciliation
+     * (CLAUDE.md §2). Restarting on resume makes the bring-online beat actually drain.
+     */
+    fun resume(): FeedState {
+        putAction("resume")
+        restartFailedTasks()
+        return state()
+    }
+
+    /**
+     * Restart any FAILED tasks of this connector. Best-effort: logs and returns the count
+     * restarted; never throws (a heal attempt must not break its caller).
+     */
+    fun restartFailedTasks(): Int =
+        try {
+            val resp = http.send(get("status"), HttpResponse.BodyHandlers.ofString())
+            if (resp.statusCode() !in 200..299) {
+                0
+            } else {
+                val ids = failedTaskIds(resp.body())
+                ids.forEach { id ->
+                    val r = http.send(restartTask(id), HttpResponse.BodyHandlers.ofString())
+                    if (r.statusCode() in 200..299) {
+                        log.info("restarted FAILED task {} of connector '{}'", id, connectorName)
+                    } else {
+                        log.warn("restart of task {} of '{}' returned {}", id, connectorName, r.statusCode())
+                    }
+                }
+                ids.size
+            }
+        } catch (e: Exception) {
+            log.warn("Could not restart failed tasks for connector '{}': {}", connectorName, e.message)
+            0
+        }
 
     private fun putAction(action: String): FeedState {
         try {
@@ -95,9 +132,68 @@ class ConnectorControlService(
             .PUT(HttpRequest.BodyPublishers.noBody())
             .build()
 
+    private fun restartTask(taskId: Int): HttpRequest =
+        HttpRequest.newBuilder()
+            .uri(URI.create("$connectBaseUrl/connectors/$connectorName/tasks/$taskId/restart"))
+            .timeout(REQUEST_TIMEOUT)
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+
     companion object {
         private val REQUEST_TIMEOUT: Duration = Duration.ofSeconds(5)
         private val mapper = ObjectMapper()
+        private val healLog = LoggerFactory.getLogger(ConnectorControlService::class.java)
+
+        /** Task ids in FAILED state from a `/connectors/{name}/status` body. */
+        fun failedTaskIds(statusJson: String): List<Int> {
+            val node = runCatching { mapper.readTree(statusJson) }.getOrNull() ?: return emptyList()
+            return node.path("tasks").mapNotNull { t ->
+                if (t.path("state").asText("") == "FAILED") t.path("id").asInt() else null
+            }
+        }
+
+        /**
+         * Restart every FAILED task across ALL deployed connectors. Used at demo reset so a sink
+         * that died while the cluster idled between demos (a stale JDBC connection the DB dropped)
+         * is healed before the run starts — covers connectors the demo never pauses/resumes (e.g.
+         * the GG→Postgres sink). Best-effort; returns the number of tasks restarted, never throws.
+         */
+        fun restartAllFailedTasks(
+            connectBaseUrl: String,
+            http: HttpClient = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build(),
+        ): Int =
+            try {
+                val req = HttpRequest.newBuilder()
+                    .uri(URI.create("$connectBaseUrl/connectors?expand=status"))
+                    .timeout(REQUEST_TIMEOUT).GET().build()
+                val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+                if (resp.statusCode() !in 200..299) {
+                    0
+                } else {
+                    var count = 0
+                    mapper.readTree(resp.body()).fields().forEach { (name, info) ->
+                        info.path("status").path("tasks").forEach { t ->
+                            if (t.path("state").asText("") == "FAILED") {
+                                val id = t.path("id").asInt()
+                                val rr = http.send(
+                                    HttpRequest.newBuilder()
+                                        .uri(URI.create("$connectBaseUrl/connectors/$name/tasks/$id/restart"))
+                                        .timeout(REQUEST_TIMEOUT).POST(HttpRequest.BodyPublishers.noBody()).build(),
+                                    HttpResponse.BodyHandlers.ofString(),
+                                )
+                                if (rr.statusCode() in 200..299) {
+                                    count++
+                                    healLog.info("reset heal: restarted FAILED task {} of connector '{}'", id, name)
+                                }
+                            }
+                        }
+                    }
+                    count
+                }
+            } catch (e: Exception) {
+                healLog.warn("Could not restart failed connector tasks via {}: {}", connectBaseUrl, e.message)
+                0
+            }
 
         /**
          * Maps a Kafka Connect `/connectors/{name}/status` body to a [FeedState].

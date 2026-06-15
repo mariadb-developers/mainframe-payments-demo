@@ -44,6 +44,7 @@ class DemoResetService(
     private val mariaSinkControlService: ConnectorControlService,
     private val bulkLoadService: BulkLoadService,
     private val mariaBulkLoadService: MariaDbBulkLoadService,
+    private val connectBaseUrl: String,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -74,6 +75,15 @@ class DemoResetService(
         step("gridgain clear")     { gridGainService.reset() }
         step("mariadb truncate")   { mariaDbService.reset() }
         step("postgres reseed")    { mainframeService.reset() }
+        // Heal any connector task that died while the cluster idled between demos (a sink's stale
+        // JDBC connection dropped by the DB → task FAILED → connector RUNNING but applying nothing,
+        // which silently breaks the phase-2/phase-5 "no events lost" reconciliation). Last, so it
+        // doesn't race the wipes above; the two beat sinks stay paused (just no longer FAILED) and
+        // are unpaused later, while the uncontrolled GG→Postgres sink is restored outright.
+        step("heal connectors")    {
+            val n = ConnectorControlService.restartAllFailedTasks(connectBaseUrl)
+            if (n > 0) log.info("Reset healed {} failed connector task(s)", n)
+        }
 
         return ResetSummary(steps = steps.map { (name, result) -> ResetStep(name, result) })
     }
