@@ -241,6 +241,13 @@ Concrete file additions are downstream work and not described here.
 
 ## §9 Toolkit Plugin Consumption *(in scope)*
 
+> **Using the toolkit?** Read the toolkit usage skill at
+> `gridgain-demo-gradle-plugin/.claude/skills/gridgain-demo-toolkit/SKILL.md` (task surface, element
+> types, generator dispatch) and, for load generation, the
+> `gridgain-demo-data-generator/.claude/skills/gridgain-demo-data-generator/SKILL.md` skill. They
+> don't auto-load here (they live in their own repos), so open them explicitly — they capture the
+> non-obvious behavior (e.g. `dataGenerate` has no rate-override property; multi-pod rate is per-pod).
+
 This demo invokes the plugin's standard task surface only. Per the workspace rule, no bespoke Gradle tasks live in this project's [mainframe-payments-demo/build.gradle.kts](mainframe-payments-demo/build.gradle.kts).
 
 **Tasks invoked:**
