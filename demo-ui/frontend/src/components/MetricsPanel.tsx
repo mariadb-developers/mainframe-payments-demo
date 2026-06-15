@@ -11,7 +11,7 @@ export function MetricsPanel({ stream, visible }: { stream: MetricsStream; visib
   const tps = latest?.observed_tps ?? 0
   const latency = latest?.avg_latency_ms ?? 0
   return (
-    <div className="w-60 bg-surface-900/90 border border-surface-700 rounded-md shadow-lg backdrop-blur px-3 py-2 space-y-2">
+    <div className="w-[30rem] bg-surface-900/90 border border-surface-700 rounded-md shadow-lg backdrop-blur px-3 py-2 space-y-2">
       <Metric
         label="Transactions / sec"
         value={tps < 10 ? tps.toFixed(1) : Math.round(tps).toString()}
@@ -56,8 +56,8 @@ function Metric({
  * stroked polyline.
  */
 function Sparkline({ values, stroke }: { values: number[]; stroke: string }) {
-  const W = 224
-  const H = 34
+  const W = 448
+  const H = 68
   const pad = 2
   const max = Math.max(1, ...values)
   const n = values.length
