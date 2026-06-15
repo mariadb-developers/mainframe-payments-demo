@@ -214,6 +214,48 @@ class MariaDbService(config: UiConfig) : AutoCloseable {
                 LIMIT 5
                 """.trimIndent(),
             ),
+            Query(
+                AnalyticQueryDefinition(
+                    id = "settlement",
+                    label = "End-of-day settlement",
+                    description = "Payments-processor reconciliation: amounts due FROM each purchaser " +
+                        "(debits) and TO each product supplier (credits, by brand). Debits and credits balance.",
+                ),
+                // As a payments processor, every PURCHASE debits the purchaser's account and credits
+                // the product's supplier. This is the end-of-period settlement statement: what to
+                // collect from each purchaser and pay to each supplier, with balancing totals (the
+                // sum of debits equals the sum of credits). Supplier = the product's brand, derived
+                // from the product name (first word, with iPhone mapped to Apple).
+                """
+                SELECT s.party_type AS party_type, s.party AS party,
+                       CONCAT('${'$'}', FORMAT(s.amount_cents / 100, 2)) AS amount
+                FROM (
+                    SELECT 'Due from purchaser' AS party_type, c.first_name AS party,
+                           SUM(t.amount) AS amount_cents, 1 AS grp
+                    FROM transaction t
+                    JOIN account a  ON a.account_id = t.account_id
+                    JOIN customer c ON c.customer_id = a.customer_id
+                    WHERE t.type = 'PURCHASE'
+                    GROUP BY c.customer_id, c.first_name
+                    UNION ALL
+                    SELECT 'Due from purchaser', '— all purchasers —', SUM(t.amount), 2
+                    FROM transaction t WHERE t.type = 'PURCHASE'
+                    UNION ALL
+                    SELECT 'Due to supplier',
+                           CASE WHEN p.name LIKE 'iPhone%' THEN 'Apple'
+                                ELSE SUBSTRING_INDEX(p.name, ' ', 1) END AS party,
+                           SUM(t.amount), 3
+                    FROM transaction t
+                    JOIN product p ON p.product_id = t.product_id
+                    WHERE t.type = 'PURCHASE'
+                    GROUP BY party
+                    UNION ALL
+                    SELECT 'Due to supplier', '— all suppliers —', SUM(t.amount), 4
+                    FROM transaction t WHERE t.type = 'PURCHASE'
+                ) s
+                ORDER BY s.grp, s.amount_cents DESC
+                """.trimIndent(),
+            ),
         ).associateBy { it.definition.id }
     }
 }
