@@ -25,6 +25,12 @@ scenarios:
     # ISO-8601 duration — the generator parses this with java.time.Duration.parse,
     # which requires the PnYnMnDTnHnMnS form ("10m" throws DateTimeParseException).
     duration: { kind: time, value: "PT10M" }
-    transaction_scope: business_event
+    # none, not business_event: the GG8 SQL tables are ATOMIC atomicity mode (the CREATE TABLE
+    # default), and GG8 8.9+ rejects atomic-cache operations inside a transaction — so a
+    # business_event (transactional) write rolls back every time ("TargetReportedFailure"), which
+    # was the ~80% error rate. Plain atomic puts succeed and give higher write throughput, which is
+    # what a load generator aimed at saturating GG wants anyway. (Transactional load would require
+    # recreating the caches as TRANSACTIONAL in the data model.)
+    transaction_scope: none
     provisioning: skip   # GG cache schema is provisioned via the plugin's deployDataModel
     read_ratio: 0.20
