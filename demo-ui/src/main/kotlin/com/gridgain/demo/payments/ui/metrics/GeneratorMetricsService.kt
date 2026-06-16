@@ -45,7 +45,13 @@ class GeneratorMetricsService(
 
     @Volatile private var consumer: KafkaConsumer<String, String>? = null
     @Volatile private var stopped = false
-    @Volatile private var lastReceivedMs = 0L
+
+    // Latest snapshot per generator pod (keyed by the pod's runId) plus the wall-clock time it
+    // arrived, so a pod that dies without a final snapshot can be evicted. The UI sees the
+    // aggregate of these — total throughput across pods, not whichever pod reported last. Touched
+    // only by the single consumer thread, so no synchronization is needed.
+    private data class TimedSnapshot(val snapshot: MetricsSnapshot, val receivedAtMs: Long)
+    private val liveByRun = LinkedHashMap<String, TimedSnapshot>()
 
     fun subscribe(): SharedFlow<MetricsSnapshot> = flow.asSharedFlow()
 
@@ -84,19 +90,60 @@ class GeneratorMetricsService(
             kc.subscribe(listOf(topic))
             while (!stopped) {
                 val records = kc.poll(Duration.ofMillis(500))
+                val now = clockMs()
+                var changed = false
                 for (rec in records) {
-                    parse(rec.value())?.let {
-                        lastReceivedMs = clockMs()
-                        flow.tryEmit(it)
-                    }
+                    val snap = parse(rec.value()) ?: continue
+                    // Each generator pod publishes its own snapshot under a distinct runId. Track the
+                    // latest per pod; a pod's clean-stop snapshot (active=false) retires it from the
+                    // aggregate so the graphs shed that pod's contribution.
+                    if (snap.active) liveByRun[snap.runId] = TimedSnapshot(snap, now)
+                    else liveByRun.remove(snap.runId)
+                    changed = true
                 }
-                // Backstop for a generator that died without its final inactive snapshot.
-                if (records.isEmpty && lastReceivedMs > 0 && clockMs() - lastReceivedMs > stalenessMs) {
-                    flow.tryEmit(idle())
-                    lastReceivedMs = 0L // emit idle once until the next live message
+                // Backstop: evict pods that died WITHOUT a final inactive snapshot (no fresh message
+                // within stalenessMs) so a crashed pod stops inflating the aggregate.
+                if (liveByRun.values.removeIf { now - it.receivedAtMs > stalenessMs }) changed = true
+
+                // Emit the combined view whenever the live set changes. When the last pod goes away
+                // (clean stop or eviction) this emits idle() once, then stays quiet until live again.
+                if (changed) {
+                    flow.tryEmit(
+                        if (liveByRun.isEmpty()) idle()
+                        else aggregate(liveByRun.values.map { it.snapshot }, now),
+                    )
                 }
             }
         }
+    }
+
+    /**
+     * Combines the latest snapshot from each live generator pod into one. Throughput, total ops,
+     * errors and target are summed — so adding pods raises the displayed rate toward the slider's
+     * total target instead of showing a single pod's share. Latency is throughput-weighted (a busier
+     * pod dominates the blended figure), falling back to a simple mean before any throughput exists.
+     * A single pod passes through unchanged (its real runId is kept). Callers pass a non-empty list;
+     * an empty live set emits [idle] instead.
+     */
+    internal fun aggregate(snapshots: List<MetricsSnapshot>, nowMs: Long): MetricsSnapshot {
+        if (snapshots.size == 1) return snapshots[0].copy(updatedAtMs = nowMs)
+
+        val observedTps = snapshots.sumOf { it.observedTps }
+        val avgLatencyMs = if (observedTps > 0.0) {
+            snapshots.sumOf { it.avgLatencyMs * it.observedTps } / observedTps
+        } else {
+            snapshots.map { it.avgLatencyMs }.average()
+        }
+        return MetricsSnapshot(
+            updatedAtMs = nowMs,
+            observedTps = observedTps,
+            avgLatencyMs = avgLatencyMs,
+            totalOps = snapshots.sumOf { it.totalOps },
+            errorCount = snapshots.sumOf { it.errorCount },
+            targetTps = snapshots.sumOf { it.targetTps },
+            runId = "${snapshots.size} pods",
+            active = snapshots.any { it.active },
+        )
     }
 
     /** Parses one Kafka value into a snapshot; null on blank/malformed payloads. */
