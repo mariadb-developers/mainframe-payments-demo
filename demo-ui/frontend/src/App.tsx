@@ -158,6 +158,11 @@ export default function App() {
     // every panel's reloadKey so the curated fresh state shows immediately.
     setPhase(0)
     setUserExecuteCount((n) => n + 1)
+    // Backend reset stops the generator (setLoad(0,1)); mirror that here. Without this,
+    // loadActive stays true from a prior load run — the LoadSlider only refreshes `running`
+    // on mount / user change, so it never clears it — and the GG→Postgres / GG→MariaDB
+    // tailers stay suppressed (disabled) through phases 3–5 after a reset.
+    setLoadActive(false)
     setFeedLive(false)
     setGgDumped(false)
     setGgLoaded(false)
