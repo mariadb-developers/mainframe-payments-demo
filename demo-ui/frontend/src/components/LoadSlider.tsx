@@ -17,11 +17,15 @@ const COMMIT_DEBOUNCE_MS = 700
 export function LoadSlider({
   enabled,
   onRunningChange,
+  resetSignal = 0,
 }: {
   enabled: boolean
   // Notifies the App when the generator starts/stops, so it can hide + unsubscribe the
   // GG→Postgres / GG→MariaDB tailers under load (those stores aren't scaled for the run).
   onRunningChange?: (running: boolean) => void
+  // Bumped by a demo reset. The slider is always mounted, so without this it would keep the
+  // prior run's settings; re-hydrating from the (already-reset) backend shows 0 ops / 1 pod.
+  resetSignal?: number
 }) {
   const [target, setTarget] = useState(0)
   const [pods, setPods] = useState(1)
@@ -32,6 +36,9 @@ export function LoadSlider({
   const hydrated = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Hydrate on mount AND whenever a reset bumps resetSignal, so the displayed target/pods/running
+  // always reflect the backend (post-reset: 0 ops, 1 pod, stopped). committed is kept in sync so
+  // the debounce effect below sees no change and doesn't re-send a no-op setLoad.
   useEffect(() => {
     generatorApi
       .state()
@@ -45,7 +52,7 @@ export function LoadSlider({
       .finally(() => {
         hydrated.current = true
       })
-  }, [])
+  }, [resetSignal])
 
   useEffect(() => {
     if (!hydrated.current) return

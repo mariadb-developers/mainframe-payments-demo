@@ -103,6 +103,9 @@ export default function App() {
   // and their streams disabled — those stores aren't scaled for the run (CLAUDE.md §3/§5).
   const [loadActive, setLoadActive] = useState(false)
   const onLoadRunningChange = useCallback((running: boolean) => setLoadActive(running), [])
+  // Bumped by a reset so the always-mounted LoadSlider re-hydrates its target/pods/running
+  // from the (already-reset) backend instead of showing the prior run's stale settings.
+  const [loadResetSignal, setLoadResetSignal] = useState(0)
 
   const cdcStream = useTailerWebSocket('cdc')
   const ggToPostgresStream = useTailerWebSocket('gg-to-postgres', !loadActive)
@@ -163,6 +166,9 @@ export default function App() {
     // on mount / user change, so it never clears it — and the GG→Postgres / GG→MariaDB
     // tailers stay suppressed (disabled) through phases 3–5 after a reset.
     setLoadActive(false)
+    // Re-hydrate the LoadSlider so its displayed target/pods/running reset to the backend's
+    // post-reset state (0 ops, 1 pod, stopped) rather than the prior run's settings.
+    setLoadResetSignal((n) => n + 1)
     setFeedLive(false)
     setGgDumped(false)
     setGgLoaded(false)
@@ -301,7 +307,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-6">
           <ConnectorHealthPill />
-          <LoadSlider enabled={v.loadSlider} onRunningChange={onLoadRunningChange} />
+          <LoadSlider enabled={v.loadSlider} onRunningChange={onLoadRunningChange} resetSignal={loadResetSignal} />
           <PhaseControl phase={phase} onChange={setPhase} />
           <ResetButton onReset={onReset} />
         </div>
