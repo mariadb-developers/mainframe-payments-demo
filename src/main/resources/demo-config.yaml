@@ -58,9 +58,10 @@ node_pool_templates:
     gke_enable_autoupgrade: false
     gke_enable_ip_alias: true
   gg-cluster-gke-pool:
-    # GridGain cluster nodes — sized for the demo's working set + persistence.
+    # GridGain cluster nodes — high-performance C4 for throughput/latency. Pure in-memory
+    # (persistence off), small working set, so no local SSD and a small boot disk suffice.
     platform: gke
-    gke_machine_type: e2-standard-4
+    gke_machine_type: c4-standard-8
     gke_disk_type: pd-standard
     gke_disk_size: 30GB
     gke_local_ssd_count: 0
@@ -160,7 +161,7 @@ cluster_templates:
       update_strategy_partition: 0
       revision_history_limit: 10
       work_dir: /opt/ignite/work
-    persistence_enabled: true
+    persistence_enabled: false
     snapshot_profiles: {}
     pod_lifecycle:
       termination_grace_period_seconds: 180
