@@ -61,11 +61,11 @@ node_pool_templates:
     # GridGain cluster nodes — C3 (Sapphire Rapids): modern high-performance for throughput/
     # latency. Chosen over C4/C3D because those have 0 CPU quota in us-west1 (C3 has 24 vCPU);
     # request a C4/C3D quota bump if you want the very newest. Pure in-memory (persistence off),
-    # small working set, so no local SSD. Boot disk hyperdisk-balanced (C3 supports it; C3 does
-    # not support pd-standard).
+    # small working set, so no local SSD. Boot disk pd-ssd: C3 supports it and SSD_TOTAL_GB quota
+    # is confirmed; C3 rejects pd-standard, and Hyperdisk capacity is unprovisioned in this region.
     platform: gke
     gke_machine_type: c3-standard-8
-    gke_disk_type: hyperdisk-balanced
+    gke_disk_type: pd-ssd
     gke_disk_size: 30GB
     gke_local_ssd_count: 0
     gke_enable_autorepair: true
