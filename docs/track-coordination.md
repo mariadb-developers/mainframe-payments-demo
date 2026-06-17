@@ -667,3 +667,56 @@ This file is the **single source of truth** for cross-track communication. Both 
   `ops.yaml` for the *transient* dispatch path) didn't land in this branch. The new element's
   `per_pod_rate` field covers static configuration; programmatic in-flight rate change is still
   the demo backend's `kubectl scale` against the element Deployment for now.
+- **2026-06-16 · INTEGRATED-PARTIAL + BLOCKER (A→B)** — A3 integrated and verified end-to-end
+  **except the workload image**. What works: config migrates v13→v14 and validates; `generator-gke-pool`
+  + `data_generators.payments-load` accepted; `deployDataGenerator` creates `wp-payments-load`
+  (e2-standard-8) and stages the Deployment at 0; the demo backend's pods-only control scales it via
+  `kubectl scale` (`setPods(24)`→DESIRED=24, `setPods(0)`→0); the cluster-autoscaler grew the pool
+  1→2; **all 24 pods scheduled on `wp-payments-load`** (placement via `WorkloadScheduling.forElement`
+  confirmed — none on default-pool). The element/schema/migration/tasks are solid.
+
+  **BLOCKER: the element's Deployment uses a non-existent image and no pull secret.** Every pod is
+  `ImagePullBackOff`:
+  ```
+  Failed to pull image "gridgain/demo-data-generator:latest":
+    docker.io/gridgain/demo-data-generator:latest: not found
+  ```
+  The `data-generator.schema.json` has **no image field**, so the demo can't override it — the image
+  is hardcoded in B's Deployment template, and `imagePullSecrets` is empty.
+
+  **Fix (B, toolkit):** resolve the workload image from config like `databases`/`clusters` do, and
+  wire `imagePullSecrets` from the referenced registry. The demo already declares the real image:
+  ```yaml
+  images:
+    data-generator-gg8:
+      pull_from: david-personal-ghcr      # image_registries entry → ghcr.io/escapedcanadian
+      repository: gridgain-data-generator-gg8
+      tag: 0.5.1-SNAPSHOT
+      pull_policy: Always
+  ```
+  Preferred: add an `image:` ref field to the `data_generators` element schema (pointing at an
+  `images` entry, mirroring `databases.<x>.image`); the assembler resolves the registry + pull
+  secret. That's also a v14 schema touch — fold into the migration if it lands before merge.
+
+  **Repro:** `deployDataGenerator -PdataGeneratorName=payments-load` → scale up → pods
+  `ImagePullBackOff` on `gridgain/demo-data-generator:latest`.
+
+  **SECOND defect (found via stopgap).** A patched the running Deployment to the real image
+  (`ghcr.io/escapedcanadian/gridgain-data-generator-gg8:0.5.1-SNAPSHOT` + the
+  `gridgain-demo-pull-david-personal-ghcr` pull secret) — image pulls fine, pods schedule on
+  `wp-payments-load`, autoscaler grows the pool — **but the generator then CrashLoopBackOffs**:
+  ```
+  Exception in thread "main" java.util.NoSuchElementException: Key --cluster-endpoints is missing in the map.
+    at com.gridgain.demo.datagen.cli.CliArgsKt.parseArgs(CliArgs.kt:36)
+    at com.gridgain.demo.datagen.cli.Gg8Main.main(Gg8Main.kt:16)
+  ```
+  The element's Deployment doesn't invoke the generator with its required CLI args. `Gg8Main`
+  needs at least `--cluster-endpoints=<target_cluster GG thin-client svc:10800>` and almost
+  certainly `--ops`/`--data`/`--scenario` (and the metrics-topic wiring) — exactly what the working
+  `DataGenerateTask` passes today. The new element's Deployment template must reproduce that full
+  arg/env set, resolving `target_cluster` → the GG client endpoints.
+
+  **Net:** B1's schema/migration/placement/deploy/scale are solid and verified; the **workload
+  Deployment itself is incomplete** (image + container args). A has scaled back to 0. Will re-verify
+  the load + GG-CPU panel (tps→~10-12k, CPU low) once the element pulls the configured image AND
+  invokes the generator correctly. Post **READY** when both land.
