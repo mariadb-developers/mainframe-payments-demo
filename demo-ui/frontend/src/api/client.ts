@@ -78,13 +78,10 @@ export const phaseApi = {
 
 export const generatorApi = {
   state: () => getJson<GeneratorState>('/api/generator'),
-  // Total target ops/sec across all pods (0 = off) + pod count. The backend splits the
-  // total across pods and (re)launches the distributed run, stopping any prior run first.
-  setLoad: (targetOpsPerSecond: number, replicas: number) =>
-    postJson<GeneratorState>('/api/generator/rate', {
-      target_ops_per_second: targetOpsPerSecond,
-      replicas,
-    }),
+  // Pod count (0 = off). Each pod runs at its ~500 ops/sec latency ceiling, so total ≈ pods × 500;
+  // adding pods is the lever for saturating GG. The backend (re)launches the distributed run,
+  // stopping any prior run first.
+  setPods: (pods: number) => postJson<GeneratorState>('/api/generator/pods', { pods }),
 }
 
 export const demoApi = {

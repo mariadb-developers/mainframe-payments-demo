@@ -43,7 +43,7 @@ class GeneratorControlService(private val config: UiConfig) {
     private val lock = Any()
 
     @Volatile
-    private var state = GeneratorState(targetOpsPerSecond = 0, replicas = 1, running = false)
+    private var state = GeneratorState(targetOpsPerSecond = 0, replicas = 0, running = false)
 
     // The most recent `./gradlew dataGenerate` subprocess. Held only so a rapid
     // re-issue can kill an in-flight apply before launching the next one — the
