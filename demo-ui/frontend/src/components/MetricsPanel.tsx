@@ -1,11 +1,13 @@
 import type { MetricsStream } from '@/hooks/useMetricsWebSocket'
+import type { CpuStream } from '@/hooks/useCpuWebSocket'
 
 /**
- * Two compact live sparklines (top-right) for the phase-6 load test: measured transactions/sec
- * and average GridGain execution latency, both sourced from the data generator's own metrics
- * (streamed over /api/metrics ~1s). Hand-rolled SVG — no charting dependency, per CLAUDE.md §5.
+ * Compact live sparklines (top-right) for the phase-6 load test: measured transactions/sec and
+ * average GridGain execution latency (from the data generator's own metrics, /api/metrics ~1s), plus
+ * the GG cluster's CPU (avg sys_CpuLoad, /api/cpu ~2s). The CPU readout is the punchline — tps climbs
+ * while GG stays bored. Hand-rolled SVG — no charting dependency, per CLAUDE.md §5.
  */
-export function MetricsPanel({ stream, visible }: { stream: MetricsStream; visible: boolean }) {
+export function MetricsPanel({ stream, cpu, visible }: { stream: MetricsStream; cpu: CpuStream; visible: boolean }) {
   if (!visible) return null
   const { history, latest } = stream
   const tps = latest?.observed_tps ?? 0
@@ -24,6 +26,13 @@ export function MetricsPanel({ stream, visible }: { stream: MetricsStream; visib
         values={history.map((p) => p.latencyMs)}
         stroke="#7dd3fc"
       />
+      <Metric
+        label="GG cluster CPU"
+        value={`${cpu.cpuPercent.toFixed(0)}%`}
+        values={cpu.history}
+        stroke="#4ade80"
+        max={100}
+      />
     </div>
   )
 }
@@ -33,11 +42,13 @@ function Metric({
   value,
   values,
   stroke,
+  max,
 }: {
   label: string
   value: string
   values: number[]
   stroke: string
+  max?: number
 }) {
   return (
     <div>
@@ -45,24 +56,24 @@ function Metric({
         <span className="text-[10px] uppercase tracking-wider text-surface-400 font-mono">{label}</span>
         <span className="text-sm font-mono font-semibold text-surface-100 tabular-nums">{value}</span>
       </div>
-      <Sparkline values={values} stroke={stroke} />
+      <Sparkline values={values} stroke={stroke} max={max} />
     </div>
   )
 }
 
 /**
- * A baseline-zero sparkline: y is scaled from 0 to the window max, so an empty/idle stream
- * draws a flat line on the floor rather than auto-zooming noise. Renders an area fill under a
- * stroked polyline.
+ * A baseline-zero sparkline: y is scaled from 0 to [max] (or the window max when [max] is omitted),
+ * so a fixed-scale series like CPU% reads against its full range instead of auto-zooming noise.
+ * Renders an area fill under a stroked polyline.
  */
-function Sparkline({ values, stroke }: { values: number[]; stroke: string }) {
+function Sparkline({ values, stroke, max }: { values: number[]; stroke: string; max?: number }) {
   const W = 448
   const H = 68
   const pad = 2
-  const max = Math.max(1, ...values)
+  const scaleMax = Math.max(1, max ?? Math.max(1, ...values))
   const n = values.length
   const x = (i: number) => (n <= 1 ? 0 : (i / (n - 1)) * (W - pad * 2) + pad)
-  const y = (v: number) => H - pad - (v / max) * (H - pad * 2)
+  const y = (v: number) => H - pad - (Math.min(v, scaleMax) / scaleMax) * (H - pad * 2)
 
   const line = values.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
   const area = n > 0 ? `${line} L${x(n - 1).toFixed(1)},${H} L${x(0).toFixed(1)},${H} Z` : ''

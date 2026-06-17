@@ -12,6 +12,7 @@ import { MetricsPanel } from '@/components/MetricsPanel'
 import { PhaseControl } from '@/components/PhaseControl'
 import { ResetButton } from '@/components/ResetButton'
 import { useMetricsWebSocket } from '@/hooks/useMetricsWebSocket'
+import { useCpuWebSocket } from '@/hooks/useCpuWebSocket'
 import { useTailerWebSocket } from '@/hooks/useTailerWebSocket'
 import { useThrottledBump } from '@/hooks/useThrottledBump'
 import type { TransactionResult } from '@/types/api'
@@ -113,6 +114,7 @@ export default function App() {
 
   // Generator throughput + GridGain execution latency for the phase-6 graphs (top-right).
   const metricsStream = useMetricsWebSocket()
+  const cpuStream = useCpuWebSocket()
 
   useEffect(() => {
     phaseApi
@@ -320,7 +322,7 @@ export default function App() {
         {/* Live load graphs, top-right of the canvas. Phase 6 only (when the generator runs);
             sits in the empty space right of the centered GG panel. */}
         <div className="absolute top-3 right-3 z-10">
-          <MetricsPanel stream={metricsStream} visible={v.loadSlider} />
+          <MetricsPanel stream={metricsStream} cpu={cpuStream} visible={v.loadSlider} />
         </div>
 
         {/* GridGain — centered, same width as the (narrowed) MariaDB panel. */}
