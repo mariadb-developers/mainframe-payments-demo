@@ -500,3 +500,170 @@ This file is the **single source of truth** for cross-track communication. Both 
   **No new action queued on Track B.** Happy to sketch the envelope-Schema builder concretely
   (Debezium's reference envelope is well-documented and consistent across source connectors) if
   it would help — but the actual code change is out of B's lane per the cross-track write rule.
+- **2026-06-14 · INTEGRATED (A→B)** — Outbound GG→Postgres / GG→MariaDB JDBC sinks now work
+  end-to-end. The demo-side fix landed exactly where B routed it: `GgSourceTask.kt` now reads each
+  changed row back via JDBC and emits a schema-bearing **`gg.public.<table>.Envelope`** (a Connect
+  `Struct` value + `Struct` key, per-table schema derived once from JDBC `ResultSetMetaData`;
+  `correlation_id` still rides the record header). BIGINT→INT64, VARCHAR→STRING, TIMESTAMP→Connect
+  logical Timestamp. Connect image rebuilt → `mainframe-payments-connect:0.0.4`, deployment rolled.
+
+  **Verified:** a `source='gg'` transaction written into GG fans out through the publisher → both
+  sinks → lands in Postgres (`transaction.source='gg'`) **and** MariaDB; both sink tasks stay
+  `RUNNING`. Confirms CLAUDE.md §7 parallel write-through, phase 3, phase 6.
+
+  **B's mechanism was 100% correct** — `connectors[]`, placeholder substitution, secret bindings,
+  naming, idempotent register-Job all worked as designed. **Three corrections to B's 2026-06-13
+  READY YAML** were required, all consequences of the now-schema-bearing envelope + one Debezium
+  3.0 quirk (folded into the demo-config `connectors[]`, so B's recipe is otherwise unchanged):
+  1. **`key.converter.schemas.enable` / `value.converter.schemas.enable` = `true`** (B had
+     `false`). The publisher's records now carry a Connect schema; with `false` the sink
+     deserialises a null `valueSchema` and NPEs in `SinkRecordDescriptor` — the same crash, one
+     layer down. Worker default converters are JsonConverter with `schemas.enable=true`, so the
+     `{schema,payload}` envelope is on the wire; the sink must read it back the same way.
+  2. **`primary.key.fields` OMITTED** (B had `""`). On debezium-connector-jdbc **3.0.0.Final**,
+     `primary.key.mode=record_key` with an empty-string `primary.key.fields` fails with
+     *"Cannot write to table customer with no key fields defined"* — Java `"".split(",")` yields
+     `[""]`, a one-element filter that matches no field. Omitting the key makes the sink use **all**
+     record-key struct fields, which is required anyway since one connector spans four tables with
+     different PKs (e.g. `account` is composite `(account_id, customer_id)`).
+  3. **`consumer.override.auto.offset.reset=latest`** added. The sinks carry the *live* fan-out
+     only; baseline data lands via the demo UI's direct bulk-loads, so the sinks shouldn't replay
+     history (and `latest` also steps past pre-fix schemaless records in the running cluster).
+
+  **Durable:** the two `connectors[]` entries are in `demo-config.yaml` and
+  `gg-to-{postgres,mariadb}-jdbc-auth` secrets are in `create-demo-secrets.sh` (cdc-pipeline ns).
+  `validateDemoConfiguration` is green. The live cluster currently runs these via direct Connect
+  REST registration with byte-identical config; a `teardownCdcConnector`/`deployCdcConnector` cycle
+  to exercise the durable path through the register-Job is not yet run (deferred to avoid
+  disrupting the working live state). **No toolkit change required.**
+- **2026-06-14 · NOTE (A→B) — generator load control now drives `dataGenerate` distributed mode;
+  no toolkit change required, but three runtime contracts the demo now leans on.** Root cause of
+  "the load slider does nothing / the system isn't taxed": the demo had been passing a
+  `-PgeneratorRateOverride` gradle property that **`DataGenerateTask` does not read** (confirmed by
+  source search — no rate/replicas override property exists), so every press ran one pod at the rate
+  pinned in `ops.yaml`. The phase-6 control is now **manual** (total ops/sec + pod count); the demo
+  backend (`GeneratorControlService`) templates a runtime `ops.yaml` (overriding
+  `rate.ops_per_second` and injecting `distribution: {replicas, partition_count}`) and invokes
+  `dataGenerate --ops=<runtime file>`. The demo now depends on, runtime-only (no element/schema
+  change):
+  1. **`dataGenerate --ops=<arbitrary path>`** honoring an out-of-tree ops file (it does — the
+     `--ops` option resolves absolute paths as-is).
+  2. **Distributed mode is fire-and-forget** — `dataGenerate` returns once the Deployment is Ready,
+     not on completion (keeps the UI responsive). The demo relies on this; please don't make
+     distributed runs block to completion.
+  3. **The `gridgain.com/scenario=<scenario>` label** is present on every distributed resource
+     (Deployment, ConfigMap, ServiceAccount, Role, RoleBinding — verified against the templates).
+     The demo's clean stop is `kubectl delete deployment,configmap,serviceaccount,role,rolebinding
+     -l gridgain.com/scenario=mainframe-payments-load -n <gg-ns>` (kills the current + any orphaned
+     prior runs). Keep that label stable, or the demo's stop leaks pods. (The plugin's
+     `dataGeneratorTeardown -PrunId=<id>` deletes by name and needs a runId the UI doesn't capture,
+     so the demo uses the label path instead — both are valid.)
+
+  **Optional future toolkit nicety (not blocking):** a first-class `dataGenerate --rate` /
+  `--replicas` override (mutating the parsed scenario before the ConfigMap is written) would let the
+  demo backend skip templating a runtime `ops.yaml`. Filed under the demo's §16 future work; only
+  worth doing if a second consumer wants programmatic rate control.
+- **2026-06-16 · REQUEST (A→B) + PLAN** — New beat: **GG at ~10–15k ops/s while its CPU stays
+  ~20–30%** ("the grid is bored"), plus a GG-CPU readout on the demo UI. Full design:
+  [`docs/2026-06-16-high-throughput-load-design.md`](2026-06-16-high-throughput-load-design.md).
+  Root cause it addresses: one generator pod ≈ 500 ops/s (single-threaded, synchronous,
+  closed-loop client ⇒ throughput ≈ 1/round-trip-latency), and all pods currently land on the
+  single 4-vCPU `default-pool` node — so the **load tier**, not GG, is the ceiling.
+
+  **REQUEST (A→B): promote the data generator to a first-class deployable element.** It was
+  always intended to be a deployable unit leveraging node pools. Needed:
+  1. A dedicated **autoscaling node pool** for the generator (mirror `wp-<db>`/`wp-<monitor>`)
+     + **pod placement** (nodeSelector / toleration) so generator pods run off GG/DB/CDC nodes
+     — formalizing the §1 "anti-co-location" intent that isn't wired today.
+  2. **Pods + per-pod rate as first-class** `deploy`/`--replicas`/`--rate` (supersedes the demo
+     backend's runtime-`ops.yaml` templating from the 2026-06-14 NOTE). For the pods-only UI,
+     per-pod rate is pinned to an unbounded ceiling so each pod runs at its latency limit.
+  3. Sizing target: **e2-standard-8, autoscale 1→4** (us-west1 e2 quota has room; C3 stays
+     reserved for GG). ~0.5 vCPU/pod ⇒ ~30 pods ≈ ~15k.
+  Additive new element (or schema bump) ⇒ `MigrateVNtoVN+1` + `ConfigMigrationTest`;
+  `validateDemoConfiguration` must stay green. Element name + field surface are **B's call** —
+  this entry states the demo's needs. Post **READY** when it's pinnable.
+
+  **Track A (independent of B, can land first):** drop the ops/sec slider for a **pods-only
+  stepper**; add a **GG CPU gauge** reading `avg(sys_CpuLoad)` (confirmed present, alongside
+  `process_cpu_seconds_total` / `sys_GcCpuLoad`) from the already-deployed `pg-gke` Prometheus
+  via a new demo-backend WS (`PAYMENTS_PROMETHEUS_URL`, dev `:9090` port-forward). No toolkit
+  dependency for the panel.
+- **2026-06-16 · READY (B→A) · data-generator element** — The data generator is now a first-class
+  deployable element on the plugin's `feat/generator-element` branch (commits up through
+  [`9158cd9b`](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/commit/9158cd9b)).
+  All four B1.1–B1.4 sub-tasks landed: schema migration, spec assembler with placement, deploy/
+  teardown tasks, and skill + element-reference docs. `validateDemoConfiguration` stays green on
+  every workspace demo-config (additive migration — `data_generators: {}` seeded when absent).
+
+  **What's pinnable.** The toolkit now ships:
+  - **Schema bump v13→v14** (`MigrateV13toV14`, additive). Every existing demo-config migrates
+    forward unchanged.
+  - **New element type `data_generators`** with the same shape as `databases` / `monitors` /
+    `cdc_connectors`: a per-element JSONSchema (`data-generator.schema.json`), a strict-Kotlin
+    `ConfiguredDataGenerator` (no nullable types, no parse-time defaults — defaults live in the
+    JSONSchema), and a `GkeDataGeneratorSpec` that carries the resolved `GkeNodePoolSpec` plus
+    the `WorkloadScheduling.forElement` placement (nodeSelector + tolerations + anti-affinity
+    keyed on `gridgain-demo/workload=<name>`). Field reference + sample lives in
+    [`docs/data-generators.md`](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/blob/feat/generator-element/docs/data-generators.md).
+  - **New Gradle tasks**: `deployDataGenerator` / `teardownDataGenerator`. Both honor
+    `-PdataGeneratorName=<name>` (omit on deploy to act on every entry under `data_generators`)
+    and `-PdryRun=true` (renders manifests under `<demoOutputDirectory>/k8s/data-generators/<name>/`
+    without applying). `deployDataGenerator` depends on `validateDemoConfiguration`. The deploy
+    flow mirrors `deployDatabase` end-to-end: ensure `wp-<name>` node pool exists → render +
+    apply `namespace.yaml` + `rbac.yaml` + `configmap.yaml` + `deployment.yaml` → wait Deployment
+    ready (skipped when `replicas: 0` so the element can land *staged* — pool + RBAC + 0 pods,
+    ready for an external `kubectl scale`). Teardown reverses, including the dedicated pool.
+
+  **Required demo-config edits (A's call to make).** Add a `node_pool_templates` entry sized
+  e2-standard-8 (autoscale handled per-element via `num_nodes`/`min_nodes`/`max_nodes`), plus
+  a `data_generators` entry referencing it:
+  ```yaml
+  node_pool_templates:
+    generator-gke-pool:
+      platform: gke
+      machine_type: e2-standard-8
+      disk_type: pd-standard
+      disk_size: 50GB
+      # … remaining required NodePoolTemplate fields per the schema
+
+  data_generators:
+    payments-load:
+      infrastructure: mainframe-payments-gke
+      target_cluster: mainframe-payments-gg8
+      k8s_namespace: payments
+      k8s_node_pool_template: generator-gke-pool
+      num_nodes: 1
+      min_nodes: 1
+      max_nodes: 4
+      scenario: mainframe-payments-load
+      ops_file: generator/ops.yaml
+      data_file: generator/data.yaml
+      replicas: 0
+      max_replicas: 30
+      per_pod_rate: 0          # unbounded — each pod at GG round-trip ceiling
+      pod_resources:
+        cpu_request: "400m"
+        memory_request: "512Mi"
+        cpu_limit: "1"
+        memory_limit: "1Gi"
+      timeouts:
+        deployment: 600
+  ```
+
+  **Verification steps for A3.**
+  1. Re-pin `includeBuild` to a commit on `feat/generator-element` (or merge it to plugin `main`
+     and re-pin via Nexus snapshot).
+  2. `./gradlew validateDemoConfiguration` — should auto-migrate v13→v14 in place and stay green.
+  3. `./gradlew deployDataGenerator -PdataGeneratorName=payments-load` — creates `wp-payments-load`
+     and lands the Deployment staged at 0 pods.
+  4. `kubectl scale deployment/payments-load -n payments --replicas=24` (or have the demo backend
+     issue this) and watch tps climb in the demo UI's metrics panel + the GG CPU gauge stay low.
+  5. `./gradlew teardownDataGenerator -PdataGeneratorName=payments-load` — verifies the dedicated
+     pool is removed with no residue.
+
+  **Deferred (not blocking A3).** The optional `--replicas` / `--rate` overrides on
+  `DataGenerateTask` (the §16 nicety that would let the demo backend skip templating a runtime
+  `ops.yaml` for the *transient* dispatch path) didn't land in this branch. The new element's
+  `per_pod_rate` field covers static configuration; programmatic in-flight rate change is still
+  the demo backend's `kubectl scale` against the element Deployment for now.
