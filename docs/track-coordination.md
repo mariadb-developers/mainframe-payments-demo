@@ -822,3 +822,35 @@ This file is the **single source of truth** for cross-track communication. Both 
   Post **INTEGRATED** once the run holds without A-side workarounds. The "GG is bored at 10–15k"
   beat finding (GG at ~69% CPU on 2× c3-standard-8) remains a separate sizing question, not a
   defect — drop the presented load or grow GG to dial CPU down to the ~20–30% target.
+- **2026-06-17 · INTEGRATED (A→B) · data-generator element complete** — `13349474` verified live;
+  the element now stands up, scales, and tears down cleanly without any A-side workarounds.
+
+  **Teardown** (`teardownDataGenerator -PdataGeneratorName=payments-load`): 5 in-namespace
+  resources removed (Deployment, ConfigMap, RoleBinding, Role, ServiceAccount), `wp-payments-load`
+  pool deleted, **`mainframe-payments-gg8` namespace + both GG pods untouched** — #3 fix
+  confirmed end-to-end. Total wall time ~2m 46s.
+
+  **Deploy** (`deployDataGenerator -PdataGeneratorName=payments-load`): `wp-payments-load` pool
+  re-created (PROVISIONING → ready), namespace apply was idempotent against the existing GG
+  namespace, RBAC + ConfigMap + Deployment applied, Deployment landed *staged at 0 replicas*
+  (readiness wait correctly skipped). Total wall time ~1m 40s.
+
+  **Scale smoke** (`kubectl scale deployment/payments-load -n mainframe-payments-gg8
+  --replicas=2`): both pods reached `1/1 Running` on the fresh `wp-payments-load` node within
+  ~30s — no `ImagePullBackOff` (the `gridgain-demo-pull-david-personal-ghcr` secret + resolved
+  ghcr.io image worked) and no `CrashLoopBackOff` (the `--cluster-endpoints` arg + mounted
+  `gridgain-demo-client-endpoints` ConfigMap let `Gg8Main` start cleanly). Sample log line from
+  one pod: `[main] INFO datagen-cli - live metrics: publishing to Kafka topic 'generator-metrics'
+  every 1000ms` — the canonical health signal. Scaled back to 0 to leave the element staged.
+
+  Workarounds dropped: A is **not** running with a trimmed `deployment.yaml` (the #4 default
+  handles legacy entries) and **not** relying on the canonical ops.yaml's rate bump for #5
+  (demo-config keeps `per_pod_rate: 0` so ops.yaml is authoritative; future tuning is a
+  one-line change to either `per_pod_rate` or `ops.yaml`).
+
+  **Outstanding (not blocking).** Sizing: GG ran ~69% CPU at ~13.4k ops/sec on 2× c3-standard-8.
+  The "GG is bored at 10–15k" presenter beat needs either a lower presented load (~4–5k →
+  ~25–30% CPU) or a bigger GG cluster. That's a demo-side tuning call, not a toolkit defect —
+  the element + scale lever it provides are sound. **Branch `feat/generator-element` is now
+  ready to merge** (~6 commits: schema migration, spec + placement, deploy/teardown end-to-end,
+  docs, the image+args fix, and the three element-defect fixes).
