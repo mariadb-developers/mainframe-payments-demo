@@ -6,7 +6,9 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.gridgain.demo.payments.ui.config.UiConfig
 import com.gridgain.demo.payments.ui.metrics.GeneratorMetricsService
+import com.gridgain.demo.payments.ui.metrics.PrometheusCpuService
 import com.gridgain.demo.payments.ui.routes.bringOnlineRoutes
+import com.gridgain.demo.payments.ui.routes.cpuRoutes
 import com.gridgain.demo.payments.ui.routes.demoRoutes
 import com.gridgain.demo.payments.ui.routes.generatorRoutes
 import com.gridgain.demo.payments.ui.routes.gridGainRoutes
@@ -109,6 +111,8 @@ fun Application.configureRouting(config: UiConfig) {
     val generatorService = GeneratorControlService(config)
     val generatorMetricsService = GeneratorMetricsService(config.kafkaBootstrapServers, config.metricsTopic)
     generatorMetricsService.start()
+    val cpuService = PrometheusCpuService(config.prometheusUrl, config.prometheusCpuQuery)
+    cpuService.start()
     val cdcSinkControlService = ConnectorControlService(config.kafkaConnectUrl, config.cdcSinkConnectorName)
     val mariaSinkControlService = ConnectorControlService(config.kafkaConnectUrl, config.mariaDbSinkConnectorName)
     val bulkLoadService = BulkLoadService(mainframeService, gridGainService)
@@ -158,6 +162,7 @@ fun Application.configureRouting(config: UiConfig) {
     environment.monitor.subscribe(io.ktor.server.application.ApplicationStopped) {
         taps.forEach { it.close() }
         generatorMetricsService.close()
+        cpuService.close()
         mainframeService.close()
         mariaDbService.close()
         gridGainService.close()
@@ -171,6 +176,7 @@ fun Application.configureRouting(config: UiConfig) {
             phaseRoutes(phaseService)
             tailerRoutes(tailerService)
             metricsRoutes(generatorMetricsService)
+            cpuRoutes(cpuService)
             generatorRoutes(generatorService)
             bringOnlineRoutes(cdcSinkControlService, bulkLoadService, mariaSinkControlService, mariaBulkLoadService)
             demoRoutes(resetService)
