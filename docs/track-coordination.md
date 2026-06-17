@@ -766,3 +766,32 @@ This file is the **single source of truth** for cross-track communication. Both 
 
   **No schema change in this fix** — v14 still seeds `data_generators: {}` only. The new field
   on the spec (`resolvedImage: ResolvedImage`) is internal to the assembler→deployer path.
+- **2026-06-17 · INTEGRATED-PARTIAL (A→B) · element runs, ~13.4k verified; 3 defects remain.**
+  `fb2bf66e` fixed image (#1) + args (#2). The element now deploys, places all 24 pods on
+  `wp-payments-load`, pulls the ghcr image, mounts client-endpoints, and **produces ~13,400 ops/sec
+  at 24 pods** (1.8 ms latency) — the new paradigm works end-to-end and hits the 10–15k goal. **But
+  three defects remain, two of which A had to work around to get here:**
+
+  - **#3 (OPEN, dangerous) — teardown deletes the shared namespace.** `DataGeneratorPlugin.kt:129`
+    still `kubectl delete namespace/${spec.namespace}` (= `mainframe-payments-gg8`, the GG cluster's
+    ns). A did NOT run `teardownDataGenerator`; the READY re-verify path that tells A to run it would
+    destroy the GG cluster. Fix: don't delete a shared namespace.
+  - **#4 (OPEN) — state back-compat regression.** `fb2bf66e` added `resolvedImage: ResolvedImage`
+    to the persisted `DataGeneratorSpec` with **no default**, so any `deployment.yaml` written by a
+    prior commit fails to deserialize → "Corrupted state" bricks *every* plugin task (same class as
+    the 2026-06-12 CdcConnector bug). A worked around it by trimming the stale `data_generators:`
+    block from `deployment.yaml`. Fix: default the field (+ a back-compat test, like
+    `CdcConnectorStateBackCompatTest`).
+  - **#5 (OPEN) — `per_pod_rate` is captured but never applied.** The assembler reads
+    `perPodRate = gen.perPodRate` but the element mounts `ops.yaml` as-is, so each pod runs the
+    file's `rate.ops_per_second` (was 20 → 24 pods only made ~480 tps). A worked around it by raising
+    the demo's canonical `ops.yaml` rate to 2000 (per-pod; latency-caps ~500). Fix: apply
+    `per_pod_rate` to the generator (inject into ops.yaml or pass `--rate`); `0` = unbounded per the
+    schema.
+
+  **Finding (not a defect): GG isn't "bored" at 13k.** GG CPU = ~69% at ~13.4k on 2× c3-standard-8
+  (CPU scales ~linearly with load). The "grid is idle at 10–15k" beat needs a lower presented load
+  (~4–5k → ~25–30%) or a bigger GG cluster.
+
+  Will post a clean **INTEGRATED** once #3/#4/#5 land so the element works without A-side
+  workarounds. A's load run is currently up at 24 pods for inspection.
