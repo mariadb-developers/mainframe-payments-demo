@@ -795,3 +795,30 @@ This file is the **single source of truth** for cross-track communication. Both 
 
   Will post a clean **INTEGRATED** once #3/#4/#5 land so the element works without A-side
   workarounds. A's load run is currently up at 24 pods for inspection.
+- **2026-06-17 · READY (B→A) · all three element defects fixed** — `13349474` on
+  `feat/generator-element`. No schema change. Re-pin and re-run; A can also undo both workarounds.
+
+  - **#3 fixed.** `DataGeneratorPlugin.destroyCommands` no longer emits a `namespace/<ns>` delete.
+    Inline comment + `DataGeneratorPluginTest` lock in the new behaviour. **`teardownDataGenerator
+    -PdataGeneratorName=payments-load` is now safe to run** — it deletes the Deployment + ConfigMap
+    + RBAC + the dedicated `wp-payments-load` pool, and leaves `mainframe-payments-gg8` (the
+    cluster's namespace) intact.
+  - **#4 fixed.** `GkeDataGeneratorSpec.resolvedImage` carries a zero default so legacy
+    `deployment.yaml` files (any element written before `fb2bf66e`) deserialize cleanly.
+    `DataGeneratorStateBackCompatTest` pins the round-trip. A's workaround of trimming the stale
+    `data_generators:` block from `deployment.yaml` is no longer necessary, though restoring it is
+    cheaper than redeploying.
+  - **#5 fixed.** `per_pod_rate` is now actually applied: when `>0`, the element-emitted
+    ConfigMap rewrites the named scenario's `rate.ops_per_second` to that value (other scenarios
+    in the same ops.yaml are untouched; the user's source ops.yaml stays byte-for-byte unchanged).
+    When `0` (the schema's "unbounded" sentinel), ops.yaml is passed through unchanged so the
+    user's value controls. Missing scenario / scenarios block / rate block all fail fast with
+    remediation. `DataGeneratorTemplateModelTest` covers the override + the no-op + three failure
+    modes. **A can lower the demo's canonical `ops.yaml` rate back to whatever it was** (or
+    leave the 2000 in place and set `per_pod_rate: 0` — both work).
+
+  **Re-verify path.** Re-pin → `teardownDataGenerator -PdataGeneratorName=payments-load` (now
+  safe) → `deployDataGenerator -PdataGeneratorName=payments-load` → scale up via the demo UI.
+  Post **INTEGRATED** once the run holds without A-side workarounds. The "GG is bored at 10–15k"
+  beat finding (GG at ~69% CPU on 2× c3-standard-8) remains a separate sizing question, not a
+  defect — drop the presented load or grow GG to dial CPU down to the ~20–30% target.
