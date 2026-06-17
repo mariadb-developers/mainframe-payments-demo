@@ -6,26 +6,23 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The launch/stop side of GeneratorControlService shells out to gradle/kubectl, so the
- * unit-testable seam is planPods: the pure decision of pods + per-pod rate from a requested
- * pod count (pods-only control — the rate is pinned to the unthrottled ceiling, not divided).
+ * setPods shells out to `kubectl scale`, so the unit-testable seam is planPods: the pure decision
+ * of pod count + running flag from a requested count (pods-only control).
  */
 class GeneratorControlServiceTest {
 
     @Test
-    fun `planPods 0 stops with zero pods and no rate`() {
+    fun `planPods 0 stops with zero pods`() {
         val plan = GeneratorControlService.planPods(0)
         assertFalse(plan.running)
         assertEquals(0, plan.replicas)
-        assertEquals(0, plan.perPodOps)
     }
 
     @Test
-    fun `planPods runs each pod at the unthrottled ceiling`() {
+    fun `planPods runs the requested pod count`() {
         val plan = GeneratorControlService.planPods(5)
         assertTrue(plan.running)
         assertEquals(5, plan.replicas)
-        assertEquals(GeneratorControlService.PER_POD_CEILING, plan.perPodOps)
     }
 
     @Test

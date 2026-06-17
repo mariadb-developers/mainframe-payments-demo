@@ -22,6 +22,7 @@ data class UiConfig(
     val metricsTopic: String,
     val generatorScenario: String,
     val generatorNamespace: String,
+    val generatorDeploymentName: String,
     val prometheusUrl: String,
     val prometheusCpuQuery: String,
 ) {
@@ -80,6 +81,9 @@ data class UiConfig(
                 // stop via `kubectl delete -l gridgain.com/scenario=<scenario>`. Defaults to the
                 // GG cluster namespace; matches clusterName for this demo.
                 generatorNamespace = env("PAYMENTS_GENERATOR_NAMESPACE", "mainframe-payments-gg8"),
+                // The data-generator element's Deployment name (= the data_generators.<name> entry).
+                // setPods scales this Deployment via `kubectl scale` in generatorNamespace.
+                generatorDeploymentName = env("PAYMENTS_GENERATOR_DEPLOYMENT", "payments-load"),
                 // The deployed pg-gke Prometheus, queried for the GG cluster's CPU (the "GG is bored
                 // at high load" readout). Dev default targets a port-forward of the in-cluster
                 // Prometheus service :9090 (scripts/dev-port-forwards.sh); in-cluster deployments
