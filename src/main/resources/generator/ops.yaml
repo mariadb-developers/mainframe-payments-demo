@@ -15,19 +15,21 @@ metrics:
   interval_ms: 1000
 
 scenarios:
-  # The phase-6 load scenario. This is the CANONICAL single-source-of-truth ops file.
-  # The demo-ui backend (GeneratorControlService) does NOT run it directly for the load
-  # control — it reads this file, overrides `rate.ops_per_second` (to total/pods) and
-  # injects a `distribution: {replicas, partition_count}` block, writes a runtime copy
-  # to demoOutputDirectory, and invokes `dataGenerate --ops=<runtime copy>` (per CLAUDE.md
-  # §10). Running this file as-is via the CLI is single-pod, blocking mode.
+  # The phase-6 load scenario, mounted AS-IS by the `data_generators` element's ConfigMap
+  # (one pod per replica). The demo UI sets the *pod count* (GeneratorControlService →
+  # `kubectl scale`); this file's `rate.ops_per_second` is therefore the PER-POD rate, and
+  # total throughput ≈ pods × min(rate, single-pod ceiling). A single pod is latency-capped
+  # at ~500 ops/sec (synchronous closed-loop client), so we set the rate well above that so
+  # each pod runs flat-out and ~24-30 pods reach ~10-15k. (The element's `per_pod_rate` field
+  # is meant to override this, but the toolkit doesn't yet apply it — see track-coordination.)
   - name: mainframe-payments-load
     target: mainframe-payments-gg8
     root_schemas: [customer]
-    rate: { kind: constant, ops_per_second: 20 }
-    # ISO-8601 duration — the generator parses this with java.time.Duration.parse,
-    # which requires the PnYnMnDTnHnMnS form ("10m" throws DateTimeParseException).
-    duration: { kind: time, value: "PT10M" }
+    rate: { kind: constant, ops_per_second: 2000 }
+    # ISO-8601 duration (java.time.Duration.parse — needs PnYnMnDTnHnMnS; "10m" throws).
+    # Long so pods run continuously; a pod that finishes its scenario exits and k8s restarts
+    # it, producing throughput pulses/gaps. The presenter stops load by scaling pods to 0.
+    duration: { kind: time, value: "PT24H" }
     # none, not business_event: the GG8 SQL tables are ATOMIC atomicity mode (the CREATE TABLE
     # default), and GG8 8.9+ rejects atomic-cache operations inside a transaction — so a
     # business_event (transactional) write rolls back every time ("TargetReportedFailure"), which
