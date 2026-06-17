@@ -1,6 +1,6 @@
 package com.gridgain.demo.payments.ui.routes
 
-import com.gridgain.demo.payments.ui.model.SetLoadRequest
+import com.gridgain.demo.payments.ui.model.SetPodsRequest
 import com.gridgain.demo.payments.ui.services.GeneratorControlService
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -14,12 +14,13 @@ fun Route.generatorRoutes(service: GeneratorControlService) {
         get {
             call.respond(service.state())
         }
-        // Manual load control (CLAUDE.md §3/§10): total target ops/sec across all pods
-        // (0 = off) plus pod count. The service splits the total across pods and
-        // (re)launches the distributed run, tearing down any prior run first.
-        post("/rate") {
-            val body = call.receive<SetLoadRequest>()
-            call.respond(service.setLoad(body.targetOpsPerSecond, body.replicas))
+        // Pods-only load control (CLAUDE.md §3/§10): pod count (0 = off). Each pod runs at its
+        // unthrottled latency ceiling, so total throughput ≈ pods × ~500 ops/sec; adding pods is
+        // the lever for saturating GG. The service (re)launches the distributed run, tearing down
+        // any prior run first.
+        post("/pods") {
+            val body = call.receive<SetPodsRequest>()
+            call.respond(service.setPods(body.pods))
         }
     }
 }

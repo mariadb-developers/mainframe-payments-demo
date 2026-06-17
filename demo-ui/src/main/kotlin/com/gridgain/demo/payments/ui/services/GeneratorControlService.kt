@@ -25,9 +25,10 @@ import org.slf4j.LoggerFactory
  *  2. **Multi-pod** — the same runtime ops.yaml injects a `distribution:` block
  *     ({replicas, partition_count}); the plugin then dispatches a Deployment of N
  *     worker pods (each single-threaded). Adding pods is the real lever for
- *     saturating GG — a single pod is capped by GG round-trip latency. The plugin
- *     does NOT divide the rate across pods (each pod runs the full ops.yaml rate), so
- *     this service writes a per-pod rate of ceil(total / replicas) to hit the target.
+ *     saturating GG — a single pod is capped by GG round-trip latency (~500 ops/sec). The
+ *     plugin does NOT divide the rate across pods (each pod runs the full ops.yaml rate), so
+ *     this service pins the per-pod rate to an unthrottled ceiling and varies only the pod
+ *     count: total throughput ≈ pods × the single-pod ceiling.
  *  3. **Clean stop** — distributed runs are long-lived Deployments; killing the
  *     gradle subprocess does NOT stop them. Each load change first
  *     `kubectl delete`s every prior run by the `gridgain.com/scenario` label, so runs
@@ -53,24 +54,14 @@ class GeneratorControlService(private val config: UiConfig) {
     fun state(): GeneratorState = state
 
     /**
-     * Set the total target write rate (across all pods) and pod count. Total 0 = off.
-     * Every call first tears down any running generator (clean stop), then — if the
-     * target is non-zero — launches a fresh distributed run at the requested load.
+     * Set the number of generator pods (0 = off). Pods are the only lever: a single pod is capped
+     * by GG round-trip latency (~500 ops/sec), so total throughput ≈ pods × that ceiling, and the
+     * way to push GG is to add pods. Each call first tears down any running generator (clean stop),
+     * then — if pods > 0 — launches a fresh distributed run with the per-pod rate pinned to an
+     * unthrottled ceiling so each pod runs flat-out.
      */
-    fun setLoad(targetOpsPerSecond: Int, replicas: Int): GeneratorState = synchronized(lock) {
-        require(targetOpsPerSecond >= 0) {
-            "targetOpsPerSecond must be >= 0 (got $targetOpsPerSecond). Use 0 to stop the generator."
-        }
-        val effectiveReplicas = when {
-            targetOpsPerSecond == 0 -> 1
-            else -> replicas.coerceIn(MIN_REPLICAS, MAX_REPLICAS)
-        }
-        if (targetOpsPerSecond != 0 && replicas != effectiveReplicas) {
-            log.warn(
-                "Requested replicas={} out of range [{}, {}]; clamped to {}.",
-                replicas, MIN_REPLICAS, MAX_REPLICAS, effectiveReplicas,
-            )
-        }
+    fun setPods(requestedPods: Int): GeneratorState = synchronized(lock) {
+        val plan = planPods(requestedPods)
 
         // Always stop first: clears the previous Deployment (and any orphaned earlier
         // runs) by label so runs never accumulate, then a clean slate to start from.
@@ -78,25 +69,24 @@ class GeneratorControlService(private val config: UiConfig) {
         launchProcess = null
         stopAllRuns()
 
-        if (targetOpsPerSecond == 0) {
-            state = GeneratorState(targetOpsPerSecond = 0, replicas = 1, running = false)
-            log.info("Generator stopped (target=0).")
+        if (!plan.running) {
+            state = GeneratorState(targetOpsPerSecond = 0, replicas = 0, running = false)
+            log.info("Generator stopped (pods=0).")
             return@synchronized state
         }
 
-        val perPodOps = ceilDiv(targetOpsPerSecond, effectiveReplicas)
-        val partitionCount = maxOf(DEFAULT_PARTITION_COUNT, effectiveReplicas)
-        val runtimeOps = writeRuntimeOps(perPodOps, effectiveReplicas, partitionCount)
-        startDistributed(runtimeOps, perPodOps, effectiveReplicas)
+        val partitionCount = maxOf(DEFAULT_PARTITION_COUNT, plan.replicas)
+        val runtimeOps = writeRuntimeOps(plan.perPodOps, plan.replicas, partitionCount)
+        startDistributed(runtimeOps, plan.perPodOps, plan.replicas)
 
         state = GeneratorState(
-            targetOpsPerSecond = targetOpsPerSecond,
-            replicas = effectiveReplicas,
+            targetOpsPerSecond = plan.replicas * APPROX_OPS_PER_POD, // display estimate; pods are the real knob
+            replicas = plan.replicas,
             running = true,
         )
         log.info(
-            "Generator load set: total={} ops/sec across {} pod(s) (~{} ops/sec/pod), partition_count={}.",
-            targetOpsPerSecond, effectiveReplicas, perPodOps, partitionCount,
+            "Generator load set: {} pod(s), each unthrottled (~{} ops/sec/pod ceiling), partition_count={}.",
+            plan.replicas, APPROX_OPS_PER_POD, partitionCount,
         )
         return@synchronized state
     }
@@ -215,16 +205,36 @@ class GeneratorControlService(private val config: UiConfig) {
         }
     }
 
-    private companion object {
-        const val MIN_REPLICAS = 1
-        const val MAX_REPLICAS = 64
+    internal companion object {
+        // The pods stepper's ceiling. Pods beyond the generator pool's autoscale budget just sit
+        // Pending until a node joins; 30 matches the demo's ~15k-ops headroom target.
+        const val MAX_PODS = 30
+
+        // Per-pod rate written to the runtime ops.yaml. Deliberately far above any single pod's
+        // achievable rate so the generator's RateLimiter never throttles — each pod runs at its
+        // GG-round-trip latency ceiling. Pods, not rate, are the lever (see setPods).
+        const val PER_POD_CEILING = 100_000
+
+        // Rough single-pod throughput (latency-capped), used only to derive a display estimate for
+        // GeneratorState.targetOpsPerSecond. The real measured rate comes from the metrics panel.
+        const val APPROX_OPS_PER_POD = 500
+
         const val DEFAULT_PARTITION_COUNT = 64
         const val STOP_TIMEOUT_SECONDS = 30L
 
-        // ISO-8601 duration for a manual load run: long enough to be "continuous" for any demo or
-        // load test (the presenter stops it explicitly via Off, which tears the Deployment down).
+        // ISO-8601 duration for a load run: long enough to be "continuous" for any demo or load test
+        // (the presenter stops it explicitly via 0 pods, which tears the Deployment down).
         const val LOAD_DURATION = "PT24H"
 
-        fun ceilDiv(a: Int, b: Int): Int = (a + b - 1) / b
+        /** Pure decision: pods + per-pod rate from a requested pod count. 0 or negative → stopped. */
+        internal fun planPods(requestedPods: Int): LoadPlan =
+            if (requestedPods <= 0) {
+                LoadPlan(perPodOps = 0, replicas = 0, running = false)
+            } else {
+                LoadPlan(perPodOps = PER_POD_CEILING, replicas = requestedPods.coerceAtMost(MAX_PODS), running = true)
+            }
     }
 }
+
+/** The launch decision for [GeneratorControlService.setPods] — extracted so it can be unit-tested. */
+internal data class LoadPlan(val perPodOps: Int, val replicas: Int, val running: Boolean)

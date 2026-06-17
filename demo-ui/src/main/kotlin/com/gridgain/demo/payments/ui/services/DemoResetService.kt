@@ -66,7 +66,7 @@ class DemoResetService(
             }
         }
 
-        step("generator stop")     { generatorService.setLoad(0, 1) }
+        step("generator stop")     { generatorService.setPods(0) }
         step("phase to 0")         { phaseService.reset() }
         // Drop any snapshot held between a dump and load, so each beat re-dumps fresh.
         step("clear bulk dumps")   { bulkLoadService.clear(); mariaBulkLoadService.clear() }
