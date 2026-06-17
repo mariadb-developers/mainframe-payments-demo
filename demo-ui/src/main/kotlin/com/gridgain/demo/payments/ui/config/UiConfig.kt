@@ -22,6 +22,8 @@ data class UiConfig(
     val metricsTopic: String,
     val generatorScenario: String,
     val generatorNamespace: String,
+    val prometheusUrl: String,
+    val prometheusCpuQuery: String,
 ) {
     companion object {
         fun fromEnvironment(): UiConfig {
@@ -78,6 +80,14 @@ data class UiConfig(
                 // stop via `kubectl delete -l gridgain.com/scenario=<scenario>`. Defaults to the
                 // GG cluster namespace; matches clusterName for this demo.
                 generatorNamespace = env("PAYMENTS_GENERATOR_NAMESPACE", "mainframe-payments-gg8"),
+                // The deployed pg-gke Prometheus, queried for the GG cluster's CPU (the "GG is bored
+                // at high load" readout). Dev default targets a port-forward of the in-cluster
+                // Prometheus service :9090 (scripts/dev-port-forwards.sh); in-cluster deployments
+                // override to the internal service via PAYMENTS_PROMETHEUS_URL.
+                prometheusUrl = env("PAYMENTS_PROMETHEUS_URL", "http://localhost:9090"),
+                // PromQL for the GG CPU gauge. sys_CpuLoad is Ignite's per-node CPU gauge (0..1);
+                // avg() blends the GG nodes. Tunable without a rebuild if the metric/labels differ.
+                prometheusCpuQuery = env("PAYMENTS_PROMETHEUS_CPU_QUERY", "avg(sys_CpuLoad)"),
             )
         }
 

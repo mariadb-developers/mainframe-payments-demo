@@ -38,6 +38,7 @@ FORWARDS=(
   "mainframe-payments-gg8|pod/mainframe-payments-gg8-0|10800:10800|GridGain node-0 thin client"
   "mainframe-payments-gg8|pod/mainframe-payments-gg8-1|10801:10800|GridGain node-1 thin client"
   "mainframe-payments-gg8|svc/mainframe-payments-gg8|8080:8080|GridGain REST"
+  "gg-prometheus-grafana|svc/prometheus|9090:9090|Prometheus (GG CPU panel)"
 )
 
 # kubectl prints one of these to its log when a tunnel breaks but keeps the
