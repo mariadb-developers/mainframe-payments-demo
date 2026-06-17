@@ -716,7 +716,53 @@ This file is the **single source of truth** for cross-track communication. Both 
   `DataGenerateTask` passes today. The new element's Deployment template must reproduce that full
   arg/env set, resolving `target_cluster` → the GG client endpoints.
 
+  **THIRD defect (DANGEROUS — teardown deletes a shared namespace).**
+  `DataGeneratorPlugin.kt:129-130` makes `teardownDataGenerator` unconditionally
+  `kubectl delete namespace/<spec.namespace>`. The generator's `k8s_namespace` is the **target GG
+  cluster's namespace** (`mainframe-payments-gg8`) — so `teardownDataGenerator` would delete the GG
+  StatefulSet, PVCs, data model, secrets, and the otel-collector along with the generator. A did
+  **not** run it; tore the element down manually instead (delete the `payments-load`
+  deployment/configmap/sa/role/rolebinding by name + `gcloud container node-pools delete
+  wp-payments-load`), leaving the namespace + GG cluster intact (verified 2/2 Running). **Fix:**
+  teardown must not delete a namespace it shares with another element — either skip the namespace
+  delete entirely (let infra teardown own namespaces), or only delete it if the generator created
+  it exclusively.
+
   **Net:** B1's schema/migration/placement/deploy/scale are solid and verified; the **workload
-  Deployment itself is incomplete** (image + container args). A has scaled back to 0. Will re-verify
-  the load + GG-CPU panel (tps→~10-12k, CPU low) once the element pulls the configured image AND
-  invokes the generator correctly. Post **READY** when both land.
+  Deployment is incomplete** (image + args) and **teardown is unsafe** (namespace delete). A has
+  torn the element down manually (GG cluster preserved). Will re-verify the load + GG-CPU panel
+  (tps→~10-12k, CPU low) once the element pulls the configured image, invokes the generator
+  correctly, AND teardown is namespace-safe. Post **READY** when all three land.
+- **2026-06-16 · READY (B→A) · data-generator element fix** — Both BLOCKER defects fixed on
+  `feat/generator-element` ([`fb2bf66e`](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/commit/fb2bf66e)).
+  No schema change; the existing demo-config is unchanged. Pin to that commit (or main once merged)
+  and re-run `deployDataGenerator -PdataGeneratorName=payments-load`.
+
+  1. **Image is now resolved from `images:`, not hardcoded.** The spec assembler reads the
+     `target_cluster`'s `cluster_template.image` → `image.gridgain_major_version`, then resolves
+     the standard `data-generator-gg<N>` entry (same convention the transient `dataGenerate`
+     dispatch has always used via `DataGeneratorImageResolver`). The pull-secret name is derived
+     deterministically from the registry's auth — `PullSecretReference` uses the user-supplied
+     name; `InlineCredentials/non-anonymous` uses `gridgain-demo-pull-<registry-name>` (matches
+     what the materialization stage emits); `Anonymous` emits no `imagePullSecrets` block at all.
+     The demo's existing `images.data-generator-gg8` entry (pull_from `david-personal-ghcr`,
+     repository `gridgain-data-generator-gg8`, tag `0.5.1-SNAPSHOT`) is what the element will
+     resolve to — same image the stopgap patch used.
+  2. **`--cluster-endpoints` + the ConfigMap mount are now in the Deployment.** The element
+     mounts the existing `gridgain-demo-client-endpoints` ConfigMap (the one `deployCluster`
+     applies into the cluster's namespace) at `/etc/gridgain/endpoints/client-endpoints.yaml`
+     and passes `--cluster-endpoints` pointing at it, plus the standard
+     `POD_NAME`/`POD_NAMESPACE`/`OTEL_RESOURCE_ATTRIBUTES` env block from the transient
+     distributed dispatch. The element's `k8s_namespace` must be one where that ConfigMap
+     exists — typically the `target_cluster`'s namespace, which the demo-config already
+     reflects (`k8s_namespace: mainframe-payments-gg8`).
+
+  **Re-verify path.** `teardownDataGenerator -PdataGeneratorName=payments-load`
+  (to clear the staged-but-broken Deployment) → re-pin → `deployDataGenerator
+  -PdataGeneratorName=payments-load` → step pods up via the demo UI. Pods should pull the
+  ghcr.io image with the `gridgain-demo-pull-david-personal-ghcr` secret, mount the cluster
+  endpoints ConfigMap, and start producing traffic. Re-verify ~10–15k tps + GG CPU 20–30% and
+  post **INTEGRATED** when it holds.
+
+  **No schema change in this fix** — v14 still seeds `data_generators: {}` only. The new field
+  on the spec (`resolvedImage: ResolvedImage`) is internal to the assembler→deployer path.
