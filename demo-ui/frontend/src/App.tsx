@@ -341,60 +341,64 @@ export default function App() {
           </div>
         </div>
 
-        <ConnectorTailers
-          highlightedCorrelationId={highlightedCorrelationId}
-          lookups={lookups}
-          sources={[
-            {
-              id: 'cdc',
-              label: 'Mainframe → GG',
-              visible: v.cdcTailer,
-              appliedState: beatState(beatActive, feedLive),
-              topControls: beatActive ? (
-                <BringOnlineControls
-                  dumped={ggDumped}
-                  loaded={ggLoaded}
-                  feedLive={feedLive}
-                  busy={bringOnlineBusy}
-                  error={bringOnlineError}
-                  onDump={onBulkDump}
-                  onLoad={onBulkLoad}
-                  onUnpause={onUnpause}
-                />
-              ) : undefined,
-            },
-            {
-              id: 'gg-to-postgres',
-              label: 'GG → Mainframe',
-              visible: v.ggToPostgresTailer,
-              suppressed: loadActive,
-            },
-            {
-              id: 'gg-to-mariadb',
-              label: 'GG → MariaDB',
-              visible: v.ggToMariaTailer,
-              suppressed: loadActive,
-              appliedState: beatState(mariaBeatActive, mariaFeedLive),
-              topControls: mariaBeatActive ? (
-                <BringOnlineControls
-                  dumped={mariaDumped}
-                  loaded={mariaLoaded}
-                  feedLive={mariaFeedLive}
-                  busy={mariaBusy}
-                  error={mariaError}
-                  onDump={onMariaBulkDump}
-                  onLoad={onMariaBulkLoad}
-                  onUnpause={onMariaUnpause}
-                />
-              ) : undefined,
-            },
-          ]}
-          streams={{
-            'gg-to-postgres': ggToPostgresStream,
-            'cdc': cdcStream,
-            'gg-to-mariadb': ggToMariadbStream,
-          }}
-        />
+        {/* SingleTailer renders an empty placeholder div for any source where visible=false —
+            gating individual sources isn't enough at phase 6, so unmount the whole row instead. */}
+        {!v.perfDashboard && (
+          <ConnectorTailers
+            highlightedCorrelationId={highlightedCorrelationId}
+            lookups={lookups}
+            sources={[
+              {
+                id: 'cdc',
+                label: 'Mainframe → GG',
+                visible: v.cdcTailer,
+                appliedState: beatState(beatActive, feedLive),
+                topControls: beatActive ? (
+                  <BringOnlineControls
+                    dumped={ggDumped}
+                    loaded={ggLoaded}
+                    feedLive={feedLive}
+                    busy={bringOnlineBusy}
+                    error={bringOnlineError}
+                    onDump={onBulkDump}
+                    onLoad={onBulkLoad}
+                    onUnpause={onUnpause}
+                  />
+                ) : undefined,
+              },
+              {
+                id: 'gg-to-postgres',
+                label: 'GG → Mainframe',
+                visible: v.ggToPostgresTailer,
+                suppressed: loadActive,
+              },
+              {
+                id: 'gg-to-mariadb',
+                label: 'GG → MariaDB',
+                visible: v.ggToMariaTailer,
+                suppressed: loadActive,
+                appliedState: beatState(mariaBeatActive, mariaFeedLive),
+                topControls: mariaBeatActive ? (
+                  <BringOnlineControls
+                    dumped={mariaDumped}
+                    loaded={mariaLoaded}
+                    feedLive={mariaFeedLive}
+                    busy={mariaBusy}
+                    error={mariaError}
+                    onDump={onMariaBulkDump}
+                    onLoad={onMariaBulkLoad}
+                    onUnpause={onMariaUnpause}
+                  />
+                ) : undefined,
+              },
+            ]}
+            streams={{
+              'gg-to-postgres': ggToPostgresStream,
+              'cdc': cdcStream,
+              'gg-to-mariadb': ggToMariadbStream,
+            }}
+          />
+        )}
 
         {/* Bottom row — Mainframe pushed left, MariaDB (20% narrower) pushed
             right, with a wide centre gap so the panels read as separated. */}

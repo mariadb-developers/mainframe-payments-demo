@@ -162,8 +162,11 @@ function SingleTailer({
     if (el) el.scrollTop = el.scrollHeight
   }, [events.length])
 
+  // Empty cell (not a dashed placeholder) so the parent grid's column slot is preserved and the
+  // remaining visible panels stay in their assigned columns. The dashed shell that used to live
+  // here looked like a "future panel" hint; in practice it was just visual noise.
   if (!visible) {
-    return <div className="bg-surface-900/50 border border-dashed border-surface-700/40 rounded h-24"></div>
+    return <div className="h-24" aria-hidden="true" />
   }
 
   // Under high load the GG→Postgres / GG→MariaDB windows are intentionally hidden: those
