@@ -56,3 +56,5 @@ dist/
 # Agent tooling (Claude Code project dir — local config/state, not shared)
 .claude/
 
+
+.superpowers/
