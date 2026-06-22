@@ -57,8 +57,10 @@ Everything below is *layout*; no new data plumbing is required.
   horizontal row, centered, ~75% body width, each with its own sparkline below.
   This is a separate component (not a prop-flag on `MetricsPanel`) because the layout
   is fundamentally different — different sizes, different arrangement, different role
-  in the page. The existing `MetricsPanel` can be retired once `PerfDashboard` is wired,
-  since `MetricsPanel` is only used at phase 6 today (its docstring confirms this).
+  in the page. `MetricsPanel` is deleted in the same change after a manual smoke check
+  confirms the new dashboard renders correctly, since `MetricsPanel` is only used at
+  phase 6 today (its docstring confirms this) — keeping it as a fallback would just be
+  dead code.
 - **`App.tsx` visibility map** — extend the existing per-phase visibility computation:
   - `mainframePanel`, `ggPanel`, `mariaPanel`: gated to `phase >= 1 && phase < 6` (and
     their existing per-phase gates).
@@ -67,14 +69,14 @@ Everything below is *layout*; no new data plumbing is required.
   - Data-flow animations: skipped entirely when `phase >= 6`.
   - The header row's existing visibility (PhaseControl, LoadSlider, ResetButton) is
     unchanged.
-- **R/W ratio source** — a single value the backend exposes once at startup (not a
-  stream), via a small `/api/workload` endpoint or as a field on the existing
-  `/api/metrics` snapshot. The value is computed once from the data generator's
-  scenario in `ops.yaml` / `data.yaml` (counting `select` vs. `insert`/`update` ops in
-  the scenario's operation mix). If the scenario file isn't available or parseable at
-  startup, the field is omitted and the subtitle falls back to a neutral label like
-  `mixed workload`. Exact source-of-truth and parsing approach is an implementation-plan
-  decision.
+- **R/W ratio source** — parsed once from the data generator's scenario in `ops.yaml`
+  (counting `select` vs. `insert`/`update` ops in the scenario's operation mix).
+  Preferred over deriving from generator telemetry because the scenario file is the
+  stable source of truth and doesn't require new metrics. Exposed by adding an
+  immutable `r_w_ratio` field (e.g. `"80:20"` or `null`) to `MetricsSnapshot` — cheaper
+  than a new route, at the cost of one extra small field in each ~1s WS frame.
+  If the scenario file isn't available or parseable at startup, the field is `null`
+  and the subtitle falls back to the neutral label `mixed workload`.
 
 ### Data flow
 
@@ -154,3 +156,6 @@ No new backend streams. R/W ratio is a one-shot value alongside `MetricsSnapshot
   the R/W ratio (exact files TBD in implementation plan).
 - `demo-ui/frontend/src/__tests__/PerfDashboard.test.tsx` (or similar) — new tests.
 - `CLAUDE.md` §3 visibility table — phase-6 row updated to reflect the dashboard mode.
+- `CLAUDE.md` §5 high-load suppression — current text describes replacing tailers with
+  a placeholder during phase 6; with the dashboard, the tailers don't exist at phase 6
+  at all, so that paragraph needs a small rewrite.
