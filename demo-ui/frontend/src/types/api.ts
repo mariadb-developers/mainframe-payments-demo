@@ -80,6 +80,9 @@ export interface MetricsSnapshot {
   target_tps: number
   run_id: string
   active: boolean
+  // Workload descriptor ("<reads>:<writes>" percentages) for the phase-6 dashboard latency
+  // subtitle; null if the backend couldn't resolve the ratio at startup.
+  r_w_ratio: string | null
 }
 
 export interface ResetStep {
