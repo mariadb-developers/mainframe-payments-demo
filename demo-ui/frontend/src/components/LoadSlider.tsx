@@ -84,12 +84,12 @@ export function LoadSlider({
       </button>
 
       <div className="flex items-center gap-1">
-        <span className="text-[11px] uppercase tracking-wider text-surface-500">Pods</span>
+        <span className="text-[11px] uppercase tracking-wider text-surface-500">Threads</span>
         <button
           onClick={() => setPods((n) => Math.max(0, n - 1))}
           disabled={pods <= 0}
           className="px-1.5 py-0.5 text-xs font-mono bg-surface-800 text-surface-300 rounded hover:bg-surface-700 disabled:opacity-40"
-          aria-label="Fewer pods"
+          aria-label="Fewer threads"
         >
           −
         </button>
@@ -98,7 +98,7 @@ export function LoadSlider({
           onClick={() => setPods((n) => Math.min(MAX_PODS, n + 1))}
           disabled={pods >= MAX_PODS}
           className="px-1.5 py-0.5 text-xs font-mono bg-surface-800 text-surface-300 rounded hover:bg-surface-700 disabled:opacity-40"
-          aria-label="More pods"
+          aria-label="More threads"
         >
           +
         </button>
@@ -106,9 +106,9 @@ export function LoadSlider({
 
       <div
         className="text-[10px] font-mono text-surface-500 w-36"
-        title={pods === 0 ? 'generator stopped' : `${pods} pods × ~${APPROX_OPS_PER_POD}/sec ≈ ${approxOps} ops/sec`}
+        title={pods === 0 ? 'generator stopped' : `${pods} threads × ~${APPROX_OPS_PER_POD}/sec ≈ ${approxOps} ops/sec`}
       >
-        {pods === 0 ? 'stopped' : `${running ? '●' : '…'} ${pods} pods ≈ ${approxOps}/s`}
+        {pods === 0 ? 'stopped' : `${running ? '●' : '…'} ${pods} threads ≈ ${approxOps}/s`}
       </div>
     </div>
   )
