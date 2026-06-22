@@ -83,4 +83,33 @@ class GeneratorMetricsServiceTest {
         assertEquals(0.0, agg.observedTps, 1e-9)
         assertEquals(6.0, agg.avgLatencyMs, 1e-9) // (5+7)/2, not a divide-by-zero
     }
+
+    @Test
+    fun `aggregate stamps rwRatio on the returned snapshot`() {
+        val withRatio = GeneratorMetricsService(
+            kafkaBootstrapServers = "unused:9092",
+            topic = "generator-metrics",
+            rwRatio = "20:80",
+        )
+        val a = snap("pod-a", tps = 1000.0, latency = 1.0, ops = 1000, errors = 0, target = 1100.0)
+        val b = snap("pod-b", tps = 500.0, latency = 2.0, ops = 500, errors = 0, target = 1100.0)
+
+        val agg = withRatio.aggregate(listOf(a, b), nowMs = 1700000000000L)
+
+        assertEquals("20:80", agg.rwRatio)
+    }
+
+    @Test
+    fun `single-pod aggregate also stamps rwRatio`() {
+        val withRatio = GeneratorMetricsService(
+            kafkaBootstrapServers = "unused:9092",
+            topic = "generator-metrics",
+            rwRatio = "20:80",
+        )
+        val solo = snap("solo", tps = 500.0, latency = 3.0, ops = 10, errors = 0, target = 1100.0)
+
+        val agg = withRatio.aggregate(listOf(solo), nowMs = 1700000000000L)
+
+        assertEquals("20:80", agg.rwRatio)
+    }
 }

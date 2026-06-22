@@ -20,6 +20,7 @@ data class UiConfig(
     val mariaDbSinkConnectorName: String,
     val projectDirectory: Path,
     val metricsTopic: String,
+    val opsFile: Path,
     val generatorScenario: String,
     val generatorNamespace: String,
     val generatorDeploymentName: String,
@@ -37,6 +38,10 @@ data class UiConfig(
             val clientEndpoints = env(
                 "PAYMENTS_CLIENT_ENDPOINTS",
                 projectDir.resolve("build/gridgain/output/client/client-endpoints.yaml").toString(),
+            )
+            val opsFile = env(
+                "PAYMENTS_OPS_FILE",
+                projectDir.resolve("src/main/resources/generator/ops.yaml").toString(),
             )
             return UiConfig(
                 serverPort = env("PAYMENTS_UI_PORT", "8081").toInt(),
@@ -73,6 +78,10 @@ data class UiConfig(
                 // The data generator publishes live throughput/latency to this Kafka topic ~1s
                 // (ops.yaml metrics block); GeneratorMetricsService consumes it off kafkaBootstrapServers.
                 metricsTopic = env("PAYMENTS_METRICS_TOPIC", "generator-metrics"),
+                // The data generator's scenario file — its `scenarios[].read_ratio` becomes the
+                // workload descriptor on the phase-6 dashboard's latency panel. Read once at
+                // startup; the UI subtitle falls back to "mixed workload" if unparseable.
+                opsFile = Paths.get(opsFile),
                 // The scenario name dataGenerate runs (ops.yaml scenarios[].name). dataGenerate
                 // requires --scenario, so GeneratorControlService passes this.
                 generatorScenario = env("PAYMENTS_GENERATOR_SCENARIO", "mainframe-payments-load"),

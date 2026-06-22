@@ -15,4 +15,9 @@ data class MetricsSnapshot(
     val targetTps: Double,
     val runId: String,
     val active: Boolean,
+    // Workload descriptor for the phase-6 dashboard's latency subtitle: e.g. "20:80" (reads:writes
+    // percentages parsed from the data generator's ops.yaml). Stamped on every emit by
+    // GeneratorMetricsService; null when the ratio couldn't be resolved at startup. Inbound
+    // snapshots from the generator carry null for this field.
+    val rwRatio: String? = null,
 )

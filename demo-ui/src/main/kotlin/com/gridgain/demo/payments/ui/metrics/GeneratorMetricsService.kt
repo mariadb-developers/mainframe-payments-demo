@@ -32,6 +32,7 @@ class GeneratorMetricsService(
     private val topic: String,
     private val stalenessMs: Long = 5_000L,
     private val clockMs: () -> Long = System::currentTimeMillis,
+    private val rwRatio: String? = null,
 ) : AutoCloseable {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -126,7 +127,7 @@ class GeneratorMetricsService(
      * an empty live set emits [idle] instead.
      */
     internal fun aggregate(snapshots: List<MetricsSnapshot>, nowMs: Long): MetricsSnapshot {
-        if (snapshots.size == 1) return snapshots[0].copy(updatedAtMs = nowMs)
+        if (snapshots.size == 1) return snapshots[0].copy(updatedAtMs = nowMs, rwRatio = rwRatio)
 
         val observedTps = snapshots.sumOf { it.observedTps }
         val avgLatencyMs = if (observedTps > 0.0) {
@@ -143,6 +144,7 @@ class GeneratorMetricsService(
             targetTps = snapshots.sumOf { it.targetTps },
             runId = "${snapshots.size} pods",
             active = snapshots.any { it.active },
+            rwRatio = rwRatio,
         )
     }
 
@@ -161,6 +163,7 @@ class GeneratorMetricsService(
         targetTps = 0.0,
         runId = "",
         active = false,
+        rwRatio = rwRatio,
     )
 
     override fun close() {

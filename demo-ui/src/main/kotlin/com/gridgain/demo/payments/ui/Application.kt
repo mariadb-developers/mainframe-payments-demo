@@ -7,6 +7,7 @@ import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.gridgain.demo.payments.ui.config.UiConfig
 import com.gridgain.demo.payments.ui.metrics.GeneratorMetricsService
 import com.gridgain.demo.payments.ui.metrics.PrometheusCpuService
+import com.gridgain.demo.payments.ui.metrics.WorkloadRatioService
 import com.gridgain.demo.payments.ui.routes.bringOnlineRoutes
 import com.gridgain.demo.payments.ui.routes.cpuRoutes
 import com.gridgain.demo.payments.ui.routes.demoRoutes
@@ -109,7 +110,20 @@ fun Application.configureRouting(config: UiConfig) {
     val gridGainService = GridGainService(config)
     val phaseService = PhaseService()
     val generatorService = GeneratorControlService(config)
-    val generatorMetricsService = GeneratorMetricsService(config.kafkaBootstrapServers, config.metricsTopic)
+    // Workload descriptor for the phase-6 dashboard's latency subtitle — read once from the
+    // generator's ops.yaml at startup, stamped onto every emitted MetricsSnapshot.
+    val rwRatio = WorkloadRatioService(config.opsFile, config.generatorScenario).readWriteRatio()
+    environment.log.info(
+        "Workload R/W ratio for scenario '{}' loaded from {}: {}",
+        config.generatorScenario,
+        config.opsFile,
+        rwRatio ?: "(none — subtitle will fall back)",
+    )
+    val generatorMetricsService = GeneratorMetricsService(
+        kafkaBootstrapServers = config.kafkaBootstrapServers,
+        topic = config.metricsTopic,
+        rwRatio = rwRatio,
+    )
     generatorMetricsService.start()
     val cpuService = PrometheusCpuService(config.prometheusUrl, config.prometheusCpuQuery)
     cpuService.start()
