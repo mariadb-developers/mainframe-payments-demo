@@ -21,12 +21,24 @@ export function LoadSlider({
   resetSignal?: number
 }) {
   const [pods, setPods] = useState(0)
+  // Separate string state for the text input so partial entries ("", "2" on the way to "20") don't
+  // re-render the controlled value out from under the user. The numeric `pods` is what the effect
+  // and the rest of the UI read; `inputValue` is what's typed.
+  const [inputValue, setInputValue] = useState('0')
   const [running, setRunning] = useState(false)
   // Last pod count actually sent to the backend — guards the debounce effect from firing on
   // hydration and from re-sending no-ops.
   const committed = useRef(0)
   const hydrated = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep the text input in sync when pods changes from a non-typing source (hydrate, Off button,
+  // reset). Skipped when the input matches numerically already so the user's mid-typing string
+  // ("02" with a leading zero on the way to "020") isn't snapped to its canonical form.
+  useEffect(() => {
+    if (Number.parseInt(inputValue, 10) !== pods) setInputValue(String(pods))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pods])
 
   // Hydrate on mount AND whenever a reset bumps resetSignal, so the displayed pod count / running
   // state always reflect the backend (post-reset: 0 pods, stopped). committed stays in sync so the
@@ -36,6 +48,7 @@ export function LoadSlider({
       .state()
       .then((s) => {
         setPods(s.replicas)
+        setInputValue(String(s.replicas))
         setRunning(s.running)
         committed.current = s.replicas
       })
@@ -83,32 +96,46 @@ export function LoadSlider({
         Off
       </button>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
         <span className="text-[11px] uppercase tracking-wider text-surface-500">Threads</span>
-        <button
-          onClick={() => setPods((n) => Math.max(0, n - 1))}
-          disabled={pods <= 0}
-          className="px-1.5 py-0.5 text-xs font-mono bg-surface-800 text-surface-300 rounded hover:bg-surface-700 disabled:opacity-40"
-          aria-label="Fewer threads"
-        >
-          −
-        </button>
-        <span className="w-6 text-center text-xs font-mono text-surface-100">{pods}</span>
-        <button
-          onClick={() => setPods((n) => Math.min(MAX_PODS, n + 1))}
-          disabled={pods >= MAX_PODS}
-          className="px-1.5 py-0.5 text-xs font-mono bg-surface-800 text-surface-300 rounded hover:bg-surface-700 disabled:opacity-40"
-          aria-label="More threads"
-        >
-          +
-        </button>
+        {/* Text input with numeric inputMode — controlled <input type="number"> with a numeric
+            value prop has subtle React/browser sync quirks (typed value can desync from the
+            controlled value in fast typing), so we drive a string state and parse on every change.
+            The 700ms debounce lets a typed value settle into a single relaunch; an empty / invalid
+            input doesn't commit, but blur snaps the display back to the last valid value. */}
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={inputValue}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/[^0-9]/g, '')
+            setInputValue(raw)
+            if (raw === '') return
+            const n = Number.parseInt(raw, 10)
+            if (Number.isNaN(n)) return
+            setPods(Math.min(MAX_PODS, Math.max(0, n)))
+          }}
+          onBlur={() => setInputValue(String(pods))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+          }}
+          className="w-14 text-center text-xs font-mono bg-surface-800 text-surface-100 rounded border border-surface-700 px-1 py-0.5 tabular-nums focus:outline-none focus:border-gg-500"
+          aria-label="Thread count"
+        />
       </div>
 
+      {/* Explicit, colored status so it's unambiguously visible — the prior subtle ●/… distinction
+          was easy to miss. Stopped (grey) when pods=0; STARTING (amber) during the 700ms debounce
+          + scale; RUNNING (green) once the backend confirms the launch. */}
       <div
-        className="text-[10px] font-mono text-surface-500 w-36"
+        className={[
+          'text-[10px] font-mono uppercase tracking-wider w-40',
+          pods === 0 ? 'text-surface-500' : running ? 'text-emerald-400' : 'text-amber-400',
+        ].join(' ')}
         title={pods === 0 ? 'generator stopped' : `${pods} threads × ~${APPROX_OPS_PER_POD}/sec ≈ ${approxOps} ops/sec`}
       >
-        {pods === 0 ? 'stopped' : `${running ? '●' : '…'} ${pods} threads ≈ ${approxOps}/s`}
+        {pods === 0 ? 'Stopped' : `${running ? 'Running' : 'Starting…'} · ${pods} threads ≈ ${approxOps}/s`}
       </div>
     </div>
   )
