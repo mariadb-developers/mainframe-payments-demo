@@ -4,10 +4,11 @@ import com.gridgain.demo.payments.ui.model.PhaseState
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Source of truth for the demo phase (0 = pre-show, 1..6 = visible panels per
- * CLAUDE.md §3). The state machine is forward-only — backward transitions are
- * rejected. The UI is also free to track this state locally; this service
- * exists so multiple browser windows in the same session can agree.
+ * Source of truth for the demo phase (0 = Mainframe panel visible, 1 = + Mainframe→GG event
+ * queue revealed, 2 = + GridGain panel + bring-online controls, …, 6 = perf dashboard; see
+ * CLAUDE.md §3). The state machine is forward-only — backward transitions are rejected. The UI
+ * is also free to track this state locally; this service exists so multiple browser windows in
+ * the same session can agree.
  */
 class PhaseService {
     private val phase = AtomicInteger(0)

@@ -19,20 +19,17 @@ import type { TransactionResult } from '@/types/api'
 
 /**
  * Per CLAUDE.md §3 visibility table — what's revealed at each phase.
- * Phase 0 hides everything but the header; the demo opens at phase 1 in v1.
- * Phases 5 and 6 are swapped vs. the original draft: MariaDB is revealed (and
- * brought online, §2) BEFORE the load generator runs.
+ * Phase 0 already shows the Mainframe panel (the demo opens to a useful state, not a blank
+ * canvas). Phase 1 reveals the Mainframe → GG event queue (CDC tailer) without any controls
+ * so the audience sees the queue itself before the GridGain panel and the bring-online
+ * buttons land in phase 2. Phase 6 swaps to the centered perf dashboard
+ * (docs/2026-06-22-phase6-performance-dashboard-design.md).
  */
 function visibility(phase: number) {
-  // Phase 6 swaps the data-plane layout for the centered performance dashboard
-  // (CLAUDE.md §3, docs/2026-06-22-phase6-performance-dashboard-design.md): data
-  // panels + connector tailers + inter-panel flow animations all unmount, replaced
-  // by the three big-number metrics. Everything previously visible at phase 6 now
-  // gates on `phase < 6` instead.
   return {
-    mainframePanel: phase >= 1 && phase < 6,
+    mainframePanel: phase < 6,
+    cdcTailer: phase >= 1 && phase < 6,
     ggPanel: phase >= 2 && phase < 6,
-    cdcTailer: phase >= 2 && phase < 6,
     ggToPostgresTailer: phase >= 3 && phase < 6,
     ggToMariaTailer: phase >= 5 && phase < 6,
     mariaPanel: phase >= 5 && phase < 6,
@@ -138,23 +135,26 @@ export default function App() {
     void refreshLookups()
   }, [refreshLookups])
 
-  // Empty the Mainframe→GG window the instant the beat reveals it (phase 2). The
-  // post-reset Postgres reseed flows through live Debezium into this window as a
-  // burst of queued lines — but those rows are exactly what Bulk Load already
-  // loads into GG, so on Unpause they drain as idempotent no-ops and only confuse
-  // the audience. Clearing here (not on Bulk Load, which is too late) means the
-  // only queued event ever shown is the in-flight transaction the presenter fires.
+  // Empty the Mainframe→GG window once, when the tailer reveals at phase 1. Anything the
+  // audience watches accumulate in phase 1 (the in-flight transactions the presenter fires,
+  // any Postgres traffic) must carry through to the phase-2 beat — those queued events ARE
+  // the buildup the audience is supposed to see drain on Unpause. Clearing again at phase 2
+  // would wipe that buildup. (The MariaDB window mirrors this at phase 5.)
   useEffect(() => {
-    if (phase === 2) cdcStream.clear()
+    if (phase === 1) cdcStream.clear()
     if (phase === 5) ggToMariadbStream.clear()
-    // Refresh name lookups when a beat starts so the trace shows customer names during the
-    // dump→load gap (mainframe names are available even before GG is loaded).
-    if (phase === 2 || phase === 5) void refreshLookups()
+    // Refresh name lookups at every reveal/beat-start so the trace shows customer names
+    // (mainframe names are available even before GG is loaded).
+    if (phase === 1 || phase === 2 || phase === 5) void refreshLookups()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
   const v = visibility(phase)
-  const beatActive = phase === 2
+  // CDC tailer reveals at phase 1, the beat (controls + paused→unpause) at phase 2 — the
+  // queued/applied two-tone styling spans both because the feed is paused throughout. The
+  // bring-online buttons appear only with the GridGain panel at phase 2.
+  const beatActive = phase === 1 || phase === 2
+  const cdcControlsActive = phase === 2
   const mariaBeatActive = phase === 5
   // Two-tone styling for a beat window: queued while paused, applied once live.
   const beatState = (active: boolean, live: boolean): AppliedState =>
@@ -353,7 +353,7 @@ export default function App() {
                 label: 'Mainframe → GG',
                 visible: v.cdcTailer,
                 appliedState: beatState(beatActive, feedLive),
-                topControls: beatActive ? (
+                topControls: cdcControlsActive ? (
                   <BringOnlineControls
                     dumped={ggDumped}
                     loaded={ggLoaded}

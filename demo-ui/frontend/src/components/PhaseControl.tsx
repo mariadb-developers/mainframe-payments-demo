@@ -6,8 +6,8 @@ interface Props {
 }
 
 const PHASE_LABELS = [
-  '0 · Pre-show',
-  '1 · Mainframe only',
+  '0 · Mainframe only',
+  '1 · Reveal MF → GG queue',
   '2 · Reveal GridGain',
   '3 · GG-side transaction',
   '4 · Mainframe-side transaction',

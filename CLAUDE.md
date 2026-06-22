@@ -64,11 +64,13 @@ CDC flows **one way only**, mainframe-proxy → GG. The pipeline is **Debezium +
 
 The demo proceeds in fixed phases. Panels are hidden until their phase is activated. We do not anticipate going backward through phases.
 
-**Pre-demo state (t=0).** All systems are running. CDC is live. Both write-through paths are wired. The mainframe proxy is seeded with the predefined transaction list (see §10). The data generator is deployed but idle. The demo UI shows only the Mainframe panel.
+**Pre-demo state (t=0).** All systems are running. CDC is live. Both write-through paths are wired. The mainframe proxy is seeded with the predefined transaction list (see §10). The data generator is deployed but idle. The demo UI opens at phase 0 — the Mainframe panel is already visible.
 
-**Phase 1 — Mainframe panel only.** The presenter selects a transaction from the VT100-styled list (for example, *"Raghu buys an NVIDIA GeForce RTX 5080 Graphics card for $1349.99"*). The balances section updates with values read from the mainframe-proxy database.
+**Phase 0 — Mainframe panel only.** The presenter selects a transaction from the VT100-styled list (for example, *"Raghu buys an NVIDIA GeForce RTX 5080 Graphics card for $1349.99"*). The balances section updates with values read from the mainframe-proxy database.
 
-**Phase 2 — Bring GridGain online (without losing events).** A phase control on the UI (see §3) reveals the GridGain panel — initially **empty**, with the Mainframe → GG event window visible but the feed **paused** (Debezium is still capturing every mainframe change into Kafka; only the inbound apply-to-GG step is held). The presenter brings GG online in four deliberate steps, demonstrating a zero-loss cutover. The **dump and load are deliberately separate** — that gap is the whole point:
+**Phase 1 — Reveal the Mainframe → GG event queue.** A phase control on the UI (see §3) reveals the Mainframe → GG event window. The CDC sink is paused (it has been since reset) and the tailer styles its events as **queued** (bright/white). No GridGain panel and no bring-online controls yet — just the queue itself, so the audience sees that mainframe changes are being captured into a durable buffer even though GridGain isn't online. This is the "set the scene" beat before the cutover.
+
+**Phase 2 — Bring GridGain online (without losing events).** The phase control reveals the GridGain panel — initially **empty** — and mounts the three bring-online buttons above the Mainframe → GG window. The feed is still paused. The presenter brings GG online in four deliberate steps, demonstrating a zero-loss cutover. The **dump and load are deliberately separate** — that gap is the whole point:
 
 1. **Bulk Dump** captures a point-in-time snapshot of the current mainframe data and holds it in the demo backend. GG is **not** touched yet.
 2. The presenter executes a transaction on the Mainframe panel. It appears in the event window as **queued** (white, not yet applied) — GG stays unchanged (feed paused), and crucially this transaction is **not** in the snapshot taken a moment ago.
@@ -97,9 +99,9 @@ The phase is the demo's control plane. Implementation responsibilities are split
 
 | Phase | Mainframe panel | GG panel | MariaDB panel | Generator        | Animations                       | Connector tailers (§5)                    |
 |-------|-----------------|----------|---------------|------------------|----------------------------------|-------------------------------------------|
-| 0     | hidden          | hidden   | hidden        | idle             | off                              | none                                      |
-| 1     | visible         | hidden   | hidden        | idle             | off                              | none                                      |
-| 2     | visible         | visible (empty→loaded) | hidden | idle    | balance-update only              | Postgres→GG (CDC) visible, **paused/buffering** + bring-online controls |
+| 0     | visible         | hidden   | hidden        | idle             | off                              | none                                      |
+| 1     | visible         | hidden   | hidden        | idle             | off                              | Postgres→GG (CDC) visible, **paused/buffering** — no bring-online controls yet |
+| 2     | visible         | visible (empty→loaded) | hidden | idle    | balance-update only              | (CDC tailer still **paused** + bring-online controls revealed above it) |
 | 3     | visible         | visible  | hidden        | idle             | + GG → mainframe-proxy data flow | + GG→Postgres                             |
 | 4     | visible         | visible  | hidden        | idle             | + mainframe-proxy → GG data flow | (CDC tailer now shows traffic)            |
 | 5     | visible         | visible  | visible (empty→loaded) | idle    | analytics query results          | + GG→MariaDB **paused/buffering** + bring-online controls |
@@ -109,7 +111,9 @@ Note: GG→Postgres write-through is live from phase 3 (no beat) so the mainfram
 
 **Phase 6 swaps the data-plane layout for a centered three-panel performance dashboard** (Throughput, GG Latency, GG CPU) — see [`docs/2026-06-22-phase6-performance-dashboard-design.md`](docs/2026-06-22-phase6-performance-dashboard-design.md). The three data panels, all connector tailers, and the inter-panel flow animations unmount at phase 6 because audiences can't read them at high ops/sec; what stays is the header (phase indicator, threads stepper, Off button, Reset button) and the dashboard itself.
 
-**Phase-2 bring-online sub-flow.** Phase 2 is not a single reveal but the zero-loss cutover beat (§2), driven by three sequential buttons mounted above the Mainframe → GG window: **Bulk Dump** (capture + hold a Postgres snapshot), **Bulk Load** (apply the held snapshot to GG), then **Unpause Event Feed** (resume the `cdc-sink`). Disabled states enforce the order. These controls appear only in phase 2; the feed starts paused (re-established by a reset, §14). The Mainframe → GG window styles events two-tone during this beat — **queued** (white) while paused, **applied** (struck through) once the feed is unpaused and the backlog drains. The presenter fires the in-flight mainframe transaction manually **between Bulk Dump and Bulk Load**, so the loaded snapshot is stale and the unpaused feed reconciles it; once unpaused the feed stays live for phases 3–6.
+**Phase 1 reveal-only beat.** Phase 1 reveals the Mainframe → GG event window with **no controls** — just the queue itself, with events styled **queued** (bright/white) because the feed is paused. This isolates the "events are being captured into a durable buffer" idea from the cutover mechanics that follow in phase 2.
+
+**Phase-2 bring-online sub-flow.** Phase 2 reveals the GridGain panel and mounts three sequential buttons above the Mainframe → GG window: **Bulk Dump** (capture + hold a Postgres snapshot), **Bulk Load** (apply the held snapshot to GG), then **Unpause Event Feed** (resume the `cdc-sink`). Disabled states enforce the order. These controls appear only in phase 2; the feed has been paused since reset (§14). The Mainframe → GG window keeps styling events **queued** (white) while paused, then **applied** (struck through) once the feed is unpaused and the backlog drains. The presenter fires the in-flight mainframe transaction manually **between Bulk Dump and Bulk Load**, so the loaded snapshot is stale and the unpaused feed reconciles it; once unpaused the feed stays live for phases 3–6.
 
 **Phase-5 bring-online sub-flow.** Phase 5 mirrors phase 2 for MariaDB, with the dump coming **from GridGain**: three buttons above the GG → MariaDB window — **Bulk Dump** (capture + hold a GG snapshot), **Bulk Load** (apply the held snapshot to MariaDB), then **Unpause Event Feed** (resume the GG→MariaDB sink). The window styles events two-tone (queued/applied) during the beat. The presenter proves it with the MariaDB panel's analytic queries run before/after, firing transactions in both the Mainframe and GridGain panels to show MariaDB unifies both sources. The pause/resume targets the **real GG→MariaDB JDBC sink by name** (`PAYMENTS_MARIADB_SINK_CONNECTOR`); that sink is a toolkit deliverable still in progress, so until it lands Unpause surfaces a "connector not found" error while **Bulk Load works regardless**.
 
@@ -171,11 +175,11 @@ Hovering or clicking a line expands it to the full payload.
 
 **Rolling buffer.** Each tailer holds the last N events in memory (N TBD during implementation; sized for legibility at low rates, with auto-pruning that prevents memory growth during phase 5's load run). Buffer is in-memory only; no persistence in v1 (see §16 for a future-work entry on session recording).
 
-**Reveal cadence.** Tailers appear alongside their corresponding connector lines per the §3 phase model. The CDC tailer is visible from phase 2 so the audience sees the baseline pipeline before any traffic is shown. The GG→MariaDB tailer is held until phase 6 so it has a spatial anchor (the MariaDB panel) to attach to.
+**Reveal cadence.** Tailers appear alongside their corresponding connector lines per the §3 phase model. The CDC tailer is visible from phase 1 — revealed before the GridGain panel so the audience sees the event queue itself before any cutover mechanics. The GG→MariaDB tailer is held until phase 5 so it has a spatial anchor (the MariaDB panel) to attach to.
 
 **Phase 6 swaps to the perf dashboard.** At phase 6 the data panels, all three connector tailers, and the inter-panel flow animations don't render at all — they're replaced by the centered three-panel performance dashboard (Throughput, GG Latency, GG CPU), so the audience reads the numbers that actually tell the "GG handles the load" story. The earlier "Not displayed under high load" placeholder on the GG→Postgres / GG→MariaDB tailers is no longer needed — at phase 6 those tailers are gone. (Per `generator-targets-own-caches`, generated load doesn't reach those stores anyway, so dropping the tailers also drops nothing of value.)
 
-**Phase-2 two-tone styling.** During the bring-online beat (§2, §3) the Mainframe → GG window distinguishes **queued** events (bright/white — buffered in Kafka while the feed is paused, not yet in GG) from **applied** events (dimmed + struck through — drained into GG once the feed is unpaused). A header badge reads "⏸ buffering" while paused and "● applying" once live. The three bring-online buttons (Bulk Dump, Bulk Load, Unpause Event Feed) sit directly above this window. Outside phase 2 the window uses the normal per-token styling. The window scrolls chronologically (newest at the bottom, auto-scrolled into view) so it reads as a live feed.
+**Phase-1/2 two-tone styling.** Across the reveal beat (phase 1) and the bring-online beat (phase 2), the Mainframe → GG window distinguishes **queued** events (bright/white — buffered in Kafka while the feed is paused, not yet in GG) from **applied** events (dimmed + struck through — drained into GG once the feed is unpaused). A header badge reads "⏸ buffering" while paused and "● applying" once live. The three bring-online buttons (Bulk Dump, Bulk Load, Unpause Event Feed) sit directly above this window only in phase 2. Outside phases 1–2 the window uses the normal per-token styling. The window scrolls chronologically (newest at the bottom, auto-scrolled into view) so it reads as a live feed.
 
 **Backend implementation.** The Ktor backend exposes three WebSocket channels — one per tailer. Sources:
 - *GG→Postgres / GG→MariaDB:* the CacheStore implementations wrap each write with a tap that emits to a Kotlin `Flow`; the Ktor backend forwards items to the WebSocket subscribers.
@@ -402,11 +406,12 @@ End-to-end test plan for the v1 demo:
 2. **Schema migration.** Any pre-element-type-bump `demo-config.yaml` in the workspace migrates forward without manual intervention; a unit test in `ConfigMigrationTest.kt` covers the new step.
 3. **Topology deploy.** `deployInfrastructure` + `deployCluster` + `deployDatabase` × 2 + `deployCdcConnector` produces a healthy GKE topology. All pods report `Ready`.
 4. **Fixture seeding.** Predefined transactions and starting balances appear in the Postgres mainframe-proxy.
-5. **Phase 1.** The demo UI loads. The Mainframe panel shows the curated transactions. Selecting one updates the balances pane from Postgres.
-6. **Phase 2.** Phase-transition control reveals the GG panel; balances match the mainframe panel within CDC tolerance (sub-second is the target).
-7. **Phase 3.** GG-side transaction propagates to both Postgres and MariaDB; UI animation visible; balance panels agree post-update.
-8. **Phase 4.** Mainframe-side transaction propagates to GG via CDC within tolerance; UI animation visible.
-9. **Phase 5.** Generator runs at the slider-selected rate; rate changes are observable in both UI and metrics; the system remains stable across the rate range advertised for the demo.
-10. **Phase 6.** Both analytics queries return non-trivial, sane results.
-11. **Connector tailers.** Each tailer reveals on its expected phase per the §3 table; events surface within sub-second latency at low rates; correlation ids co-highlight matching GG→Postgres and GG→MariaDB events; the in-memory rolling buffer auto-prunes during phase 5 (no unbounded memory growth in the Ktor backend or the browser).
-12. **Teardown.** `teardownX` tasks remove all deployed elements; no residual k8s resources, no orphaned PVs.
+5. **Phase 0.** The demo UI loads with the Mainframe panel already visible. Selecting a curated transaction updates the balances pane from Postgres.
+6. **Phase 1.** Phase-transition control reveals the Mainframe → GG event window with no controls; events style as queued because the feed is paused.
+7. **Phase 2.** Phase-transition control reveals the GG panel and the bring-online controls; the four-step beat (Bulk Dump → in-flight transaction → Bulk Load → Unpause) leaves GG balances matching the mainframe within CDC tolerance (sub-second is the target).
+8. **Phase 3.** GG-side transaction propagates to both Postgres and MariaDB; UI animation visible; balance panels agree post-update.
+9. **Phase 4.** Mainframe-side transaction propagates to GG via CDC within tolerance; UI animation visible.
+10. **Phase 5.** Generator runs at the slider-selected rate; rate changes are observable in both UI and metrics; the system remains stable across the rate range advertised for the demo.
+11. **Phase 6.** Both analytics queries return non-trivial, sane results.
+12. **Connector tailers.** Each tailer reveals on its expected phase per the §3 table; events surface within sub-second latency at low rates; correlation ids co-highlight matching GG→Postgres and GG→MariaDB events; the in-memory rolling buffer auto-prunes during phase 5 (no unbounded memory growth in the Ktor backend or the browser).
+13. **Teardown.** `teardownX` tasks remove all deployed elements; no residual k8s resources, no orphaned PVs.
