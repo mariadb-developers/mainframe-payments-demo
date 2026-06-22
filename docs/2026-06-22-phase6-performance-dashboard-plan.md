@@ -24,12 +24,12 @@
 - `demo-ui/frontend/src/components/PerfDashboard.tsx` — three-panel horizontal dashboard for phase 6, replaces `MetricsPanel`.
 
 **Modified:**
-- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/metrics/MetricsSnapshot.kt` — add `val rwRatio: String?` field (serialized as `r_w_ratio` to match snake_case JSON convention used elsewhere — check `GeneratorMetricsService.parse` to confirm).
-- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/metrics/GeneratorMetricsService.kt` — accept a `WorkloadRatioService` (or just the string), stamp every emitted snapshot (live and idle) with it.
+- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/metrics/MetricsSnapshot.kt` — add `val rwRatio: String? = null` field. Wire name is `r_w_ratio`: the existing `MetricsSnapshot` docstring documents that the WebSocket route re-serializes the class to snake_case for the frontend (`types/api.ts` confirms — every existing field is snake_case there).
+- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/metrics/GeneratorMetricsService.kt` — accept the ratio string (not the service) via constructor, default `null`. Stamp it inside `aggregate(...)` and `idle()` — both are the only emit sources, so the single `flow.tryEmit` site inherits the field automatically.
 - `demo-ui/src/test/kotlin/com/gridgain/demo/payments/ui/metrics/GeneratorMetricsServiceTest.kt` — extend with a case asserting `rwRatio` propagates onto emitted snapshots.
-- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/Application.kt` — wire `WorkloadRatioService` into `GeneratorMetricsService` at startup; ops-file path from `PAYMENTS_OPS_FILE` env var (defaults to `src/main/resources/generator/ops.yaml`), scenario name from `PAYMENTS_GENERATOR_SCENARIO` env var (defaults to `mainframe-payments-load`).
-- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/config/UiConfig.kt` — new env-var entries for the two values above.
-- `demo-ui/frontend/src/hooks/useMetricsWebSocket.ts` — extend `MetricsStream`'s `latest` type to include `r_w_ratio: string | null`.
+- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/Application.kt` — wire `WorkloadRatioService(config.opsFile, config.generatorScenario).readWriteRatio()` into the `GeneratorMetricsService` constructor at startup; log the loaded value for the smoke check.
+- `demo-ui/src/main/kotlin/com/gridgain/demo/payments/ui/config/UiConfig.kt` — add **one** new field: `opsFile: Path`. Default resolves via the existing `projectDirectory` pattern (matches `clientEndpointsFile`'s handling of the `:demo-ui:run` working-directory mismatch). **Do NOT add a scenario-name field — `generatorScenario` already exists** (line ~78, reads `PAYMENTS_GENERATOR_SCENARIO`). Reuse it.
+- `demo-ui/frontend/src/types/api.ts` — extend the existing `MetricsSnapshot` interface (line ~74) with `r_w_ratio: string | null`. The `useMetricsWebSocket` hook imports this type, so no separate hook edit needed.
 - `demo-ui/frontend/src/App.tsx` — visibility map adds `perfDashboard: phase >= 6`, gates data panels + tailers + flow animations on `phase < 6`, renders `<PerfDashboard ...>` where today's `<MetricsPanel ...>` lives.
 - `CLAUDE.md` — §3 phase-6 row + §5 high-load suppression paragraph.
 
@@ -241,11 +241,11 @@ Confirm the test names that construct or assert on `MetricsSnapshot`. You'll ext
 
 - [ ] **Step 2: Write the failing test addition**
 
-In `GeneratorMetricsServiceTest.kt`, add (or extend the existing `aggregate` test with) an assertion that an `rwRatio` passed in flows through aggregation:
+In `GeneratorMetricsServiceTest.kt`, add a new test asserting that an `rwRatio` passed via the constructor flows through `aggregate(...)` onto the returned snapshot:
 
 ```kotlin
 @Test
-fun `aggregate stamps rwRatio on every emitted snapshot`() {
+fun `aggregate stamps rwRatio on the returned snapshot`() {
     val service = GeneratorMetricsService(
         kafkaBootstrapServers = "n/a",
         topic = "n/a",
@@ -267,7 +267,7 @@ fun `aggregate stamps rwRatio on every emitted snapshot`() {
 }
 ```
 
-Also add an assertion to whichever test exercises the idle/no-data path (e.g. `idle returns zero snapshot`) that the idle snapshot also carries the configured `rwRatio`.
+`idle()` is private and there's no existing idle test to amend — that's fine. `idle()` mirrors `aggregate()`'s stamping pattern (Step 5 below adds `rwRatio = this.rwRatio` to both call sites of the data-class constructor); coverage of the field-plumbing comes from the aggregate test, and the idle path is exercised at runtime by Task 7's smoke #4 (threads = 0 still shows the workload subtitle).
 
 - [ ] **Step 3: Run to confirm it fails**
 
@@ -297,10 +297,11 @@ data class MetricsSnapshot(
 - [ ] **Step 5: Wire it through `GeneratorMetricsService`**
 
 In `GeneratorMetricsService.kt`:
-1. Add a constructor param `private val rwRatio: String? = null`.
+1. Add a constructor param `private val rwRatio: String? = null` (default keeps existing call sites valid).
 2. In `aggregate()`, when building the returned `MetricsSnapshot`, pass `rwRatio = this.rwRatio`.
 3. In `idle()`, do the same.
-4. Where the per-record parsed snapshot is emitted live (around the `flow.tryEmit` site), `.copy(rwRatio = this.rwRatio)` before emit — the generator never sets this field; the backend stamps it.
+
+That's it — there's only one `flow.tryEmit(...)` site (around line 111) and it emits either `aggregate(...)` or `idle()`, so both emit paths now carry the field with no extra copy needed.
 
 - [ ] **Step 6: Run tests to verify pass**
 
@@ -312,22 +313,36 @@ Expected: both green.
 
 - [ ] **Step 7: Wire startup**
 
-In `Application.kt` (where `GeneratorMetricsService` is constructed), pass `WorkloadRatioService(config.opsFile, config.generatorScenarioName).readWriteRatio()` as the `rwRatio` constructor arg.
+In `UiConfig.kt`, add **one** new field — `val opsFile: Path` — populated following the existing `clientEndpointsFile` pattern (which already handles the `:demo-ui:run` working-directory mismatch via `projectDirectory` + `findDemoProjectRoot()`):
 
-In `UiConfig.kt`, add:
 ```kotlin
-val opsFile: Path,
-val generatorScenarioName: String,
+val opsFile = env(
+    "PAYMENTS_OPS_FILE",
+    projectDir.resolve("src/main/resources/generator/ops.yaml").toString(),
+)
+// …in the UiConfig(...) constructor call below:
+opsFile = Paths.get(opsFile),
 ```
-loaded via `env("PAYMENTS_OPS_FILE", "src/main/resources/generator/ops.yaml").let { Path.of(it) }` and `env("PAYMENTS_GENERATOR_SCENARIO", "mainframe-payments-load")`.
 
-- [ ] **Step 8: Smoke the WebSocket emits the field**
+Do **not** add a scenario-name field — `generatorScenario` already exists on `UiConfig` (line ~78) for exactly this value.
 
+In `Application.kt` (where `GeneratorMetricsService` is constructed), wire the ratio in and log it:
+```kotlin
+val rwRatio = WorkloadRatioService(config.opsFile, config.generatorScenario).readWriteRatio()
+logger.info("Workload R/W ratio for scenario '${config.generatorScenario}' loaded from ${config.opsFile}: ${rwRatio ?: "(none — subtitle will fall back)"}")
+val metricsService = GeneratorMetricsService(
+    // …existing args…
+    rwRatio = rwRatio,
+)
+```
+
+- [ ] **Step 8: Smoke the startup log line**
+
+Restart the UI (Task 7's stop/start procedure works once it's defined; for now just kill the existing `:demo-ui:run` Java process holding port 8081 and re-run). Then:
 ```bash
-# After restarting :demo-ui:run (Task 7's procedure works), connect to /api/metrics:
-( echo -e 'GET /api/metrics HTTP/1.1\r\nHost: localhost:8081\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: x\r\nSec-WebSocket-Version: 13\r\n\r\n'; sleep 2 ) | nc -G 3 localhost 8081 | strings | grep -m1 r_w_ratio
+grep -m1 'Workload R/W ratio' /tmp/demo-ui.log
 ```
-A successful frame shows the new field (it serializes as either `rwRatio` or `r_w_ratio` depending on Jackson naming strategy — verify whichever; the frontend hook (Task 5) reads it accordingly).
+Expected: a line confirming the ratio was loaded (e.g. `… loaded from /Users/…/src/main/resources/generator/ops.yaml: 20:80`). If the line says `(none — subtitle will fall back)`, check that `projectDir` resolved correctly — most likely cause is launching from the wrong working directory.
 
 - [ ] **Step 9: Commit**
 
@@ -389,12 +404,12 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Create: `demo-ui/frontend/src/components/PerfDashboard.tsx`
 
-- [ ] **Step 1: Confirm the `MetricsStream` / `CpuStream` types now expose `r_w_ratio`**
+- [ ] **Step 1: Confirm the TS `MetricsSnapshot` interface exposes `r_w_ratio`**
 
 ```bash
-grep -nE 'rwRatio|r_w_ratio' demo-ui/frontend/src/hooks/useMetricsWebSocket.ts demo-ui/frontend/src/api/client.ts
+grep -nE 'r_w_ratio' demo-ui/frontend/src/types/api.ts
 ```
-If absent, add `r_w_ratio: string | null` (or `rwRatio` — match whatever Jackson emits, per Task 2 Step 8) to the `MetricsLatest` / `MetricsSnapshot` TS type — that field rides on `latest`, not `history`.
+If absent (it will be on a clean run of Task 2), add `r_w_ratio: string | null` to the `MetricsSnapshot` interface at `demo-ui/frontend/src/types/api.ts` (around line 74) — that field rides on `latest`, not `history`. Confirm `useMetricsWebSocket.ts` imports `MetricsSnapshot` from `types/api.ts` so the new field is in scope without further edits.
 
 - [ ] **Step 2: Write `PerfDashboard.tsx`**
 
@@ -508,7 +523,7 @@ Expected: clean. If `latest.r_w_ratio` errors, you missed updating the TS type i
 
 ```bash
 git add demo-ui/frontend/src/components/PerfDashboard.tsx \
-        demo-ui/frontend/src/hooks/useMetricsWebSocket.ts demo-ui/frontend/src/api/client.ts
+        demo-ui/frontend/src/types/api.ts
 git commit -m "feat(ui): PerfDashboard component for phase 6
 
 Three-panel horizontal layout — Throughput, GG Latency, GG CPU — big numbers
