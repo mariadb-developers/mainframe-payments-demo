@@ -1,0 +1,4 @@
+schema_version: 4
+scenarios:
+  - name: not-the-one-we-want
+    read_ratio: 0.20

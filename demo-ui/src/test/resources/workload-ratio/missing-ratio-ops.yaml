@@ -1,0 +1,4 @@
+schema_version: 4
+scenarios:
+  - name: mainframe-payments-load
+    rate: { kind: constant, ops_per_second: 2000 }
