@@ -256,7 +256,8 @@ This demo invokes the plugin's standard task surface only. Per the workspace rul
 - `deployCluster` — deploys the GG8 cluster.
 - `deployDatabase` *(new, per §8)* — deploys Postgres and MariaDB.
 - `deployCdcConnector` *(new, per §8)* — wires the mainframe-proxy → GG pipeline.
-- ~~`deployClusterMonitoring`~~ — not used; Control Center is out of scope (§15).
+- `deployMonitor` — deploys the `pg-gke` Prometheus/Grafana stack that feeds the demo UI's GG CPU gauge.
+- `deployClusterMonitoring` — attaches `pg-gke` to the GG cluster (deploys the otel-collector + routes GG telemetry into Prometheus). Required after `deployCluster` + `deployMonitor`; without it, no GG metrics reach Prometheus and the CPU gauge stays empty. (CC is still out of scope per §15 — this task wires the Prom/Grafana monitor only.)
 - `deployDataModel` — provisions caches in GG.
 - `dataGenerate` — runs the payment-shaped scenarios (§10).
 - `launchPluginUi` — operator-facing only; not part of the audience-facing demo flow.
