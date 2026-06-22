@@ -8,7 +8,7 @@ import { GridGainPanel } from '@/components/GridGainPanel'
 import { LoadSlider } from '@/components/LoadSlider'
 import { MainframePanel } from '@/components/MainframePanel'
 import { MariaDbPanel } from '@/components/MariaDbPanel'
-import { MetricsPanel } from '@/components/MetricsPanel'
+import { PerfDashboard } from '@/components/PerfDashboard'
 import { PhaseControl } from '@/components/PhaseControl'
 import { ResetButton } from '@/components/ResetButton'
 import { useMetricsWebSocket } from '@/hooks/useMetricsWebSocket'
@@ -24,14 +24,20 @@ import type { TransactionResult } from '@/types/api'
  * brought online, §2) BEFORE the load generator runs.
  */
 function visibility(phase: number) {
+  // Phase 6 swaps the data-plane layout for the centered performance dashboard
+  // (CLAUDE.md §3, docs/2026-06-22-phase6-performance-dashboard-design.md): data
+  // panels + connector tailers + inter-panel flow animations all unmount, replaced
+  // by the three big-number metrics. Everything previously visible at phase 6 now
+  // gates on `phase < 6` instead.
   return {
-    mainframePanel: phase >= 1,
-    ggPanel: phase >= 2,
-    cdcTailer: phase >= 2,
-    ggToPostgresTailer: phase >= 3,
-    ggToMariaTailer: phase >= 5,
-    mariaPanel: phase >= 5,
+    mainframePanel: phase >= 1 && phase < 6,
+    ggPanel: phase >= 2 && phase < 6,
+    cdcTailer: phase >= 2 && phase < 6,
+    ggToPostgresTailer: phase >= 3 && phase < 6,
+    ggToMariaTailer: phase >= 5 && phase < 6,
+    mariaPanel: phase >= 5 && phase < 6,
     loadSlider: phase >= 6,
+    perfDashboard: phase >= 6,
   }
 }
 
@@ -319,11 +325,14 @@ export default function App() {
           The three panels are sized and pushed apart so they read as a separated
           triangle — GG top-center, Mainframe bottom-left, MariaDB bottom-right. */}
       <main className="relative grid grid-rows-[1fr_auto_1fr] gap-3 p-3 min-h-0">
-        {/* Live load graphs, top-right of the canvas. Phase 6 only (when the generator runs);
-            sits in the empty space right of the centered GG panel. */}
-        <div className="absolute top-3 right-3 z-10">
-          <MetricsPanel stream={metricsStream} cpu={cpuStream} visible={v.loadSlider} />
-        </div>
+        {/* Phase 6 only: the centered three-panel performance dashboard replaces the data
+            panels / tailers / animations entirely (CLAUDE.md §3, §5). When visible it overlays
+            the data-plane grid below, which is empty in phase 6 anyway. */}
+        {v.perfDashboard && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center">
+            <PerfDashboard stream={metricsStream} cpu={cpuStream} visible={v.perfDashboard} />
+          </div>
+        )}
 
         {/* GridGain — centered, same width as the (narrowed) MariaDB panel. */}
         <div className="flex justify-center min-h-0">
