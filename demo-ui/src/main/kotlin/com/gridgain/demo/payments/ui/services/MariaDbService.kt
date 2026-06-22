@@ -199,19 +199,17 @@ class MariaDbService(config: UiConfig) : AutoCloseable {
             ),
             Query(
                 AnalyticQueryDefinition(
-                    id = "top-customers",
-                    label = "Top 5 spenders",
-                    description = "Customers with the largest total spend across all PURCHASE transactions.",
+                    id = "purchases-by-product",
+                    label = "Purchases by product",
+                    description = "Count of PURCHASE transactions for each product, ranked by purchases.",
                 ),
                 """
-                SELECT c.first_name, COUNT(t.transaction_id) AS purchases, SUM(t.amount) AS total_cents
-                FROM customer c
-                JOIN account a ON a.customer_id = c.customer_id
-                JOIN transaction t ON t.account_id = a.account_id
+                SELECT p.name AS product, COUNT(t.transaction_id) AS purchases
+                FROM product p
+                JOIN transaction t ON t.product_id = p.product_id
                 WHERE t.type = 'PURCHASE'
-                GROUP BY c.customer_id, c.first_name
-                ORDER BY total_cents DESC
-                LIMIT 5
+                GROUP BY p.product_id, p.name
+                ORDER BY purchases DESC, p.name
                 """.trimIndent(),
             ),
             Query(
