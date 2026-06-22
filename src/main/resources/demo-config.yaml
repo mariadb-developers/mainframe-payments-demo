@@ -495,8 +495,8 @@ data_generators:
     target_cluster: mainframe-payments-gg8
     k8s_namespace: mainframe-payments-gg8
     k8s_node_pool_template: generator-gke-pool
-    num_nodes: 1
-    min_nodes: 1
+    num_nodes: 2
+    min_nodes: 2
     max_nodes: 4
     scenario: mainframe-payments-load
     ops_file: generator/ops.yaml
