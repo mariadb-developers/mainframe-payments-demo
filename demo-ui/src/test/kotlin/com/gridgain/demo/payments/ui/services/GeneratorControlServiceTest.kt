@@ -26,10 +26,12 @@ class GeneratorControlServiceTest {
     }
 
     @Test
-    fun `planPods clamps a request above MAX_PODS`() {
+    fun `planPods honors a large requested count without clamping`() {
+        // No upper clamp at the service layer — k8s scheduling + the generator pool's autoscale max
+        // are the real ceiling; pods that exceed the pool's fit sit Pending until a node joins.
         val plan = GeneratorControlService.planPods(1000)
         assertTrue(plan.running)
-        assertEquals(GeneratorControlService.MAX_PODS, plan.replicas)
+        assertEquals(1000, plan.replicas)
     }
 
     @Test

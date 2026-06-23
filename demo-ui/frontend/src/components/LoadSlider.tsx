@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { generatorApi } from '@/api/client'
 
-const MAX_PODS = 30
 const APPROX_OPS_PER_POD = 500
 // Debounce so rapid +/- clicks settle before we (re)launch — each change tears down and recreates
 // the distributed run, so we only want to do it once the pod count settles.
@@ -62,7 +61,7 @@ export function LoadSlider({
     if (pods === committed.current) return
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(async () => {
-      const p = Math.min(MAX_PODS, Math.max(0, Math.round(pods)))
+      const p = Math.max(0, Math.round(pods))
       try {
         const s = await generatorApi.setPods(p)
         committed.current = p
@@ -114,7 +113,7 @@ export function LoadSlider({
             if (raw === '') return
             const n = Number.parseInt(raw, 10)
             if (Number.isNaN(n)) return
-            setPods(Math.min(MAX_PODS, Math.max(0, n)))
+            setPods(Math.max(0, n))
           }}
           onBlur={() => setInputValue(String(pods))}
           onKeyDown={(e) => {

@@ -27,9 +27,11 @@ class GeneratorControlService(private val config: UiConfig) {
     fun state(): GeneratorState = state
 
     /**
-     * Scale the generator element's Deployment to [requestedPods] (0 = off; clamped to [MAX_PODS]).
-     * Requires the element to be deployed already (`deployDataGenerator`); this only adjusts the
-     * replica count, which is fast (k8s spins the pods up asynchronously).
+     * Scale the generator element's Deployment to [requestedPods] (0 = off). Requires the element
+     * to be deployed already (`deployDataGenerator`); this only adjusts the replica count, which is
+     * fast (k8s spins the pods up asynchronously). No upper clamp — k8s scheduling + the generator
+     * pool's autoscale max are the real ceiling; pods that exceed the pool's fit sit Pending until
+     * a node joins.
      */
     fun setPods(requestedPods: Int): GeneratorState = synchronized(lock) {
         val plan = planPods(requestedPods)
@@ -73,11 +75,6 @@ class GeneratorControlService(private val config: UiConfig) {
     }
 
     internal companion object {
-        // The pods stepper's ceiling. Pods beyond the generator pool's autoscale budget sit Pending
-        // until a node joins; 30 matches the demo's ~15k-ops headroom target and the element's
-        // max_replicas.
-        const val MAX_PODS = 30
-
         // Rough single-pod throughput (latency-capped), used only to derive a display estimate for
         // GeneratorState.targetOpsPerSecond. The real measured rate comes from the metrics panel.
         const val APPROX_OPS_PER_POD = 500
@@ -89,7 +86,7 @@ class GeneratorControlService(private val config: UiConfig) {
             if (requestedPods <= 0) {
                 LoadPlan(replicas = 0, running = false)
             } else {
-                LoadPlan(replicas = requestedPods.coerceAtMost(MAX_PODS), running = true)
+                LoadPlan(replicas = requestedPods, running = true)
             }
     }
 }
