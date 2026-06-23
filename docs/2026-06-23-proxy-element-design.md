@@ -56,11 +56,7 @@ proxies:
     infrastructure: mainframe-payments-gke
     k8s_namespace: payments-proxy          # own ns, like databases
     k8s_node_pool_template: default-gke-pool
-    image:
-      pull_from: <registry name>           # mirrors databases.<x>.image
-      repository: haproxy
-      tag: 2.9-alpine
-      pull_policy: IfNotPresent
+    image: haproxy:2.9-alpine              # flat string, matches postgres/mariadb convention
     pod_resources:
       cpu_request: 100m
       memory_request: 64Mi
@@ -107,9 +103,8 @@ proxies:
 | `cluster` (GG8) | `thin_client`, `rest` | `<element-name>` (headless) for both |
 | `cdc_connector` | `kafka`, `kafka_connect` | `<element-name>-kafka`, `<element-name>-connect` |
 | `monitor` (prometheus-grafana) | `prometheus`, `grafana` | `prometheus`, `grafana` |
-| `monitor` (control-center) | `frontend`, `backend` | `frontend`, `backend` |
 
-Out-of-scope element kinds (`infrastructure`, `cluster_monitoring`, `data_model`, `data_generator`, `assembly`) advertise no services — listing them as a `target.kind` is a validation error.
+Out-of-scope element kinds (`infrastructure`, `cluster_monitoring`, `data_model`, `data_generator`, `assembly`) advertise no services — listing them as a `target.kind` is a validation error. Control Center monitors are excluded from v1 because the mainframe-payments demo does not deploy them (per the demo's CLAUDE.md §15); a future demo that reintroduces CC monitors can extend the registry with `frontend` / `backend` short names without a schema change.
 
 ---
 
@@ -126,11 +121,12 @@ Mirrors the `databases` and `data_generators` patterns end-to-end.
 | `src/main/kotlin/com/gridgain/demo/core/configuration/MigrateV15toV16.kt` | Additive migration — seeds `proxies: {}` when absent. |
 | `src/main/kotlin/com/gridgain/demo/core/validation/ProxyValidator.kt` | Cross-element ref checks (see §2 Validation). |
 | `src/main/kotlin/com/gridgain/demo/core/assembly/ProxySpecAssembler.kt` | Resolves each listener's `target` to `<svc>.<ns>.svc.cluster.local:<port>`. Consults the service-name registry. |
-| `src/main/kotlin/com/gridgain/demo/core/spec/GkeProxySpec.kt` | Resolved, deployable spec. Carries `ResolvedImage`, `WorkloadScheduling.forElement`, `List<ResolvedListener>`. |
+| `src/main/kotlin/com/gridgain/demo/core/spec/GkeProxySpec.kt` | Resolved, deployable spec. Carries the resolved image string, `WorkloadScheduling.forElement`, `List<ResolvedListener>`. |
 | `src/main/kotlin/com/gridgain/demo/core/deployment/ProxyDeployer.kt` | Apply Namespace, ConfigMap (generated `haproxy.cfg`), Deployment, ClusterIP Service. Wait Deployment ready. |
-| `src/main/kotlin/com/gridgain/demo/plugin/tasks/DeployProxyAction.kt` | Walker action invoked by the Gradle task and by the assembly walker. |
-| `src/main/kotlin/com/gridgain/demo/plugin/tasks/TeardownProxyAction.kt` | Walker action; **namespace-safe teardown** — does not delete a namespace shared with another element (the data-generator #3 fix). |
-| `src/main/kotlin/com/gridgain/demo/plugin/DeployProxyTask.kt` / `TeardownProxyTask.kt` | Gradle task entry points. |
+| `src/main/kotlin/com/gridgain/demo/core/deployment/ProxyDestroyer.kt` | **Namespace-safe teardown** — does not delete a namespace shared with another element (the data-generator #3 fix). Paired with `ProxyDeployer` to match the toolkit convention (`DatabaseDeployer`+`DatabaseDestroyer`, `CdcConnectorDeployer`+`CdcConnectorDestroyer`, etc.). |
+| `src/main/kotlin/com/gridgain/demo/core/actions/DeployProxyAction.kt` | Walker action invoked by the Gradle task and by the assembly walker. Lives in `core/actions/`, matching every other `Deploy*Action`. |
+| `src/main/kotlin/com/gridgain/demo/core/actions/TeardownProxyAction.kt` | Walker action; delegates teardown to `ProxyDestroyer`. |
+| `src/main/kotlin/com/gridgain/demo/plugin/tasks/DeployProxyTask.kt` / `TeardownProxyTask.kt` | Gradle task entry points (only the `*Task.kt` shell lives in `plugin/tasks/`; all behaviour is in the action + deployer/destroyer). |
 | `src/main/resources/templates/k8s/proxy/{namespace,configmap,deployment,service}.yaml` | Mustache templates. |
 
 ### Assembly walker integration
@@ -139,9 +135,10 @@ Mirrors the `databases` and `data_generators` patterns end-to-end.
 
 ### Gradle tasks
 
-- `deployProxy -PproxyName=<name>` (omit `-PproxyName` → all entries under `proxies`). Depends on `validateDemoConfiguration`.
+- `deployProxy -PproxyName=<name>` (omit `-PproxyName` → all entries under `proxies`).
 - `teardownProxy -PproxyName=<name>`.
 - Both honor `-PdryRun=true` (renders manifests under `<demoOutputDirectory>/k8s/proxies/<name>/` without applying), matching `deployDatabase` ergonomics.
+- Validation: `deployProxy` follows whatever pattern the existing `Deploy*Task` classes use (explicit Gradle `dependsOn` vs. an action-level `prepare` step that runs `ValidateConfigurationAction`). The planner picks the matching convention so the new task slots in identically.
 
 ### Assembly order
 
