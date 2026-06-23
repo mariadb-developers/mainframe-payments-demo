@@ -110,7 +110,7 @@ cluster_templates:
     metastorage_node_limit: 3
     resources:
       limits:
-        cpu: 3000m
+        cpu: 6000m
         memory: 10Gi
       requests:
         cpu: 2000m
