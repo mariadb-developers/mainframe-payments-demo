@@ -1,4 +1,4 @@
-schema_version: 14
+schema_version: 15
 demo:
   name: mainframe-payments
   description: |
@@ -511,3 +511,27 @@ data_generators:
       memory_limit: 1Gi
     timeouts:
       deployment: 600
+
+assemblies:
+  mainframe-payments:
+    description: Full mainframe-payments demo topology — GG8 + Postgres mainframe-proxy + MariaDB + CDC + generator
+    elements:
+      - kind: infrastructure
+        name: mainframe-payments-gke
+      - kind: monitor
+        name: pg-gke
+      - kind: cluster
+        name: mainframe-payments-gg8
+      - kind: cluster_monitoring
+        cluster: mainframe-payments-gg8
+        monitor: pg-gke
+      - kind: data_model
+        cluster: mainframe-payments-gg8
+      - kind: database
+        name: postgres-mainframe-proxy
+      - kind: database
+        name: mariadb-analytics
+      - kind: cdc_connector
+        name: mainframe-to-gg
+      - kind: data_generator
+        name: payments-load
