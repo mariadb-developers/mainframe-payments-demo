@@ -110,7 +110,7 @@ cluster_templates:
     metastorage_node_limit: 3
     resources:
       limits:
-        cpu: 6000m
+        cpu: 8000m
         memory: 10Gi
       requests:
         cpu: 2000m
@@ -495,9 +495,9 @@ data_generators:
     target_cluster: mainframe-payments-gg8
     k8s_namespace: mainframe-payments-gg8
     k8s_node_pool_template: generator-gke-pool
-    num_nodes: 2
-    min_nodes: 2
-    max_nodes: 4
+    num_nodes: 6
+    min_nodes: 6
+    max_nodes: 6
     scenario: mainframe-payments-load
     ops_file: generator/ops.yaml
     data_file: generator/data.yaml
