@@ -854,3 +854,43 @@ This file is the **single source of truth** for cross-track communication. Both 
   the element + scale lever it provides are sound. **Branch `feat/generator-element` is now
   ready to merge** (~6 commits: schema migration, spec + placement, deploy/teardown end-to-end,
   docs, the image+args fix, and the three element-defect fixes).
+- **2026-06-23 · MERGED (B) · feat/generator-element → main** — PR #4 merged via rebase. The
+  8-commit branch (data-generator element v13→v14, FileLock on `deployment.yaml`, assemblies
+  element v14→v15, plus the three datagen stabilization commits) is now on `origin/main`
+  (tip `5f6e9d07`, `feat(assembly): introduce 'assemblies' element type`). Cleared the way
+  for the v15→v16 `proxies` element work below.
+
+- **2026-06-23 · READY (B→A) · proxies element + single dev port-forward** — New first-class
+  `proxies` element on plugin branch `feat/proxy-element`
+  ([PR #5](https://github.com/GridGain-Demos/gridgain-demo-gradle-plugin/pull/5)). Additive
+  schema bump 15 → 16. HAProxy 2.9-alpine TCP proxy, ClusterIP, fronts the seven in-cluster
+  backends the demo UI reaches today (Postgres :5432, MariaDB :3306, Kafka :9094, Kafka Connect
+  :8083, GG :10800 + :8080, Prometheus :9090). Listener targets reference other elements by
+  `kind + name + service` short-name; the assembler resolves to
+  `<svc>.<ns>.svc.cluster.local:<port>` at deploy time via the new `ProxyServiceRegistry`.
+  Namespace-safe teardown (data-generator #3 lesson applied — destroyer never deletes the
+  proxy's namespace). Walker integration: `AssemblyElementKind.PROXY` + dispatcher branches +
+  one fix to `assembly.schema.json`'s enum (caught by A's `validateDemoConfiguration` after
+  the demo's assembly added the proxy element — folded into the same plugin branch).
+
+  **Demo-side: add `proxies.payments-proxy` to demo-config.yaml** (already done on demo `main`,
+  commit `fd20abb`), **append `{ kind: proxy, name: payments-proxy }` to the
+  `mainframe-payments` assembly** (commit `baf83b8`), and **collapse `scripts/dev-port-forwards.sh`
+  to a single multi-port forward against `svc/payments-proxy`** (commit `c750f9d`). UI backend
+  Kotlin/TS is unchanged — same `localhost:<port>` defaults; the port-forward is what changes.
+  Eight individual forwards become one; the proxy's ClusterIP Service is more stable than the
+  per-pod targets the old forwards used, so STALE / dead-but-listening regressions are nearly
+  eliminated.
+
+  **Design + plan:** `docs/2026-06-23-proxy-element-design.md` + `docs/2026-06-23-proxy-element-plan.md`.
+
+  **Re-verify path (Track A side, once plugin PR #5 merges and the local includeBuild picks it up):**
+  1. `./gradlew validateDemoConfiguration` — already green pre-merge against the branch checkout.
+  2. `./gradlew deployAssembly -PassemblyName=mainframe-payments` — proxy comes up last after all backends.
+  3. `kubectl get svc payments-proxy -n payments-proxy -o yaml` — confirms 7 ports.
+  4. From the proxy pod, `nc -zv` each backend FQDN to prove HAProxy routes through.
+  5. Run `scripts/dev-port-forwards.sh` (now collapses to one multi-port forward) and `./gradlew :demo-ui:run`.
+  6. Resilience proof: `kubectl delete pod -l app=payments-proxy -n payments-proxy` — UI keeps working through the same port-forward.
+  7. `./gradlew teardownAssembly -PassemblyName=mainframe-payments` — proxy comes down with everything else.
+
+  Post **INTEGRATED** once the live cluster has done the above.
