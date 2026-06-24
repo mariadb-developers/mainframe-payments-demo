@@ -66,7 +66,7 @@ class PrometheusCpuService(
                 flow.tryEmit(snapshot.copy(updatedAtMs = clockMs()))
             } else {
                 consecutiveFailures++
-                // Prometheus may not be reachable yet (dev: backend up before the port-forward).
+                // Prometheus may not be reachable yet (dev: backend up before the payments-proxy port-forward).
                 // Emit idle once after a couple of misses so the gauge zeros instead of freezing.
                 if (consecutiveFailures >= stalePolls && !idleEmitted) {
                     flow.tryEmit(idle())

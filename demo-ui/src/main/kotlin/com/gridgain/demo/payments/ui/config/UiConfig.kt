@@ -55,18 +55,18 @@ data class UiConfig(
                 clusterName = env("PAYMENTS_GG_CLUSTER", "mainframe-payments-gg8"),
                 clientEndpointsFile = Paths.get(clientEndpoints),
                 // Dev default targets the broker's EXTERNAL listener (advertises localhost:9094),
-                // reachable over a port-forward of the pod's :9094. The PLAINTEXT listener (:9092)
-                // advertises the in-cluster FQDN, so a laptop consumer bootstrapped there connects
-                // but can never fetch (the advertised address is unresolvable off-cluster) and the
-                // tailers stay silently empty. In-cluster deployments override this to the internal
-                // Kafka service via PAYMENTS_KAFKA_BOOTSTRAP.
+                // reachable via the payments-proxy port-forward (scripts/dev-port-forwards.sh).
+                // The PLAINTEXT listener (:9092) advertises the in-cluster FQDN, so a laptop
+                // consumer bootstrapped there connects but can never fetch (the advertised address
+                // is unresolvable off-cluster) and the tailers stay silently empty. In-cluster
+                // deployments override this to the internal Kafka service via PAYMENTS_KAFKA_BOOTSTRAP.
                 kafkaBootstrapServers = env("PAYMENTS_KAFKA_BOOTSTRAP", "localhost:9094"),
                 cdcTopicPrefix = env("PAYMENTS_CDC_TOPIC_PREFIX", "mainframe-to-gg"),
                 // Kafka Connect REST API — drives the cdc-sink connector's pause/resume for the
                 // phase-2 "bring GridGain online" beat. The toolkit registers the connector under
                 // "<cdc_connectors-entry-name>-<connectors[].name>", i.e. the demo-config entry
                 // `mainframe-to-gg` + connector `cdc-sink` => `mainframe-to-gg-cdc-sink` (NOT the
-                // bare `cdc-sink`). In dev, port-forward the Connect service (rest_port 8083) here.
+                // bare `cdc-sink`). In dev, the payments-proxy exposes Connect at :8083 (scripts/dev-port-forwards.sh).
                 kafkaConnectUrl = env("PAYMENTS_KAFKA_CONNECT_URL", "http://localhost:8083"),
                 cdcSinkConnectorName = env("PAYMENTS_CDC_SINK_CONNECTOR", "mainframe-to-gg-cdc-sink"),
                 // The outbound GG→MariaDB JDBC sink, paused/resumed for the phase-5 beat. NOT yet
@@ -94,9 +94,9 @@ data class UiConfig(
                 // setPods scales this Deployment via `kubectl scale` in generatorNamespace.
                 generatorDeploymentName = env("PAYMENTS_GENERATOR_DEPLOYMENT", "payments-load"),
                 // The deployed pg-gke Prometheus, queried for the GG cluster's CPU (the "GG is bored
-                // at high load" readout). Dev default targets a port-forward of the in-cluster
-                // Prometheus service :9090 (scripts/dev-port-forwards.sh); in-cluster deployments
-                // override to the internal service via PAYMENTS_PROMETHEUS_URL.
+                // at high load" readout). Dev default targets the payments-proxy's :9090 listener
+                // (scripts/dev-port-forwards.sh); in-cluster deployments override to the internal
+                // service via PAYMENTS_PROMETHEUS_URL.
                 prometheusUrl = env("PAYMENTS_PROMETHEUS_URL", "http://localhost:9090"),
                 // PromQL for the GG CPU gauge. sys_CpuLoad is Ignite's per-node CPU gauge (0..1);
                 // avg() blends the GG nodes. Tunable without a rebuild if the metric/labels differ.

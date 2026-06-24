@@ -112,7 +112,7 @@ class ConnectorControlService(
             throw IllegalStateException(
                 "Could not $action the connector '$connectorName' via the Kafka Connect REST API at " +
                     "$connectBaseUrl. Ensure Connect is reachable and the connector is deployed (in dev, " +
-                    "port-forward the Connect service to $connectBaseUrl). Cause: ${e.message}",
+                    "run scripts/dev-port-forwards.sh to expose the payments-proxy). Cause: ${e.message}",
                 e,
             )
         }

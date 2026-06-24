@@ -48,7 +48,7 @@ class KafkaTailerTap(
 
     private fun run() {
         // Kafka may not be reachable yet (e.g. dev workflow: backend starts
-        // before kubectl port-forward is up). Retry-with-backoff until shutdown.
+        // before the payments-proxy port-forward is up). Retry-with-backoff until shutdown.
         while (!stopped) {
             try {
                 pollLoop()

@@ -106,9 +106,9 @@ export function GridGainPanel({ onExecuted, reloadKey }: Props) {
             'Connected to GridGain — no loaded data yet.'
           ) : (
             <>
-              GridGain not reachable from this host. Use{' '}
-              <code className="rounded bg-slate-200/70 px-1 font-mono text-slate-600">kubectl port-forward</code> to
-              expose the GG service, then refresh.
+              GridGain not reachable from this host. Start the payments-proxy port-forward (
+              <code className="rounded bg-slate-200/70 px-1 font-mono text-slate-600">scripts/dev-port-forwards.sh</code>
+              ) and refresh.
             </>
           )}
         </div>

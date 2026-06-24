@@ -111,7 +111,7 @@ class GridGainService(
      */
     fun executePurchase(customerId: String, accountId: String, productId: String): TransactionResult {
         connect() ?: throw IllegalStateException(
-            "GridGain cluster not reachable. Start a port-forward to the GG client port and retry.",
+            "GridGain cluster not reachable. Start the payments-proxy port-forward (`scripts/dev-port-forwards.sh`) and retry.",
         )
 
         val priceCents = runQuery("SELECT price FROM Product WHERE product_id = ?", productId.toLong())
@@ -171,7 +171,7 @@ class GridGainService(
      */
     fun bulkLoad(snapshot: PaymentsSnapshot): Map<String, Int> {
         connect() ?: throw IllegalStateException(
-            "GridGain cluster not reachable. Start a port-forward to the GG client port and retry.",
+            "GridGain cluster not reachable. Start the payments-proxy port-forward (`scripts/dev-port-forwards.sh`) and retry.",
         )
         snapshot.customers.forEach {
             runUpdate(
@@ -216,7 +216,7 @@ class GridGainService(
      */
     fun readSnapshot(): PaymentsSnapshot {
         connect() ?: throw IllegalStateException(
-            "GridGain cluster not reachable. Start a port-forward to the GG client port and retry.",
+            "GridGain cluster not reachable. Start the payments-proxy port-forward (`scripts/dev-port-forwards.sh`) and retry.",
         )
         val customers = runQuery("SELECT customer_id, first_name, source FROM Customer ORDER BY customer_id").map {
             PaymentsSnapshot.CustomerRow(

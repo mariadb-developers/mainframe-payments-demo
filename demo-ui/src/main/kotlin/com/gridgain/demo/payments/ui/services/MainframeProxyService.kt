@@ -25,7 +25,7 @@ class MainframeProxyService(config: UiConfig) : AutoCloseable {
             maximumPoolSize = 4
             poolName = "mainframe-proxy"
             // Lazy pool init: the DB may not be reachable when the UI starts
-            // (operator typically launches port-forward after the UI boots).
+            // (operator typically runs scripts/dev-port-forwards.sh after the UI boots).
             initializationFailTimeout = -1
         },
     )

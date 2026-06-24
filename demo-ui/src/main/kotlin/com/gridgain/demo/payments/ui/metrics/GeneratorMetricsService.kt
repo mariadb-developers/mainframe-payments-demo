@@ -61,7 +61,7 @@ class GeneratorMetricsService(
     }
 
     private fun run() {
-        // Kafka may not be reachable yet (dev: backend starts before the port-forward). Retry.
+        // Kafka may not be reachable yet (dev: backend starts before the payments-proxy port-forward). Retry.
         while (!stopped) {
             try {
                 pollLoop()
