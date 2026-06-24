@@ -593,3 +593,5 @@ assemblies:
         name: mainframe-to-gg
       - kind: data_generator
         name: payments-load
+      - kind: proxy
+        name: payments-proxy
