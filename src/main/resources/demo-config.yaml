@@ -1,4 +1,4 @@
-schema_version: 15
+schema_version: 16
 demo:
   name: mainframe-payments
   description: |
@@ -511,6 +511,64 @@ data_generators:
       memory_limit: 1Gi
     timeouts:
       deployment: 600
+
+proxies:
+  payments-proxy:
+    disabled: false
+    infrastructure: mainframe-payments-gke
+    k8s_namespace: payments-proxy
+    k8s_node_pool_template: default-gke-pool
+    image: haproxy:2.9-alpine
+    pod_resources:
+      cpu_request: 100m
+      memory_request: 64Mi
+      cpu_limit: 500m
+      memory_limit: 128Mi
+    listeners:
+      - port: 5432
+        target:
+          kind: database
+          name: postgres-mainframe-proxy
+          service: primary
+          service_port: 5432
+      - port: 3306
+        target:
+          kind: database
+          name: mariadb-analytics
+          service: primary
+          service_port: 3306
+      - port: 9094
+        target:
+          kind: cdc_connector
+          name: mainframe-to-gg
+          service: kafka
+          service_port: 9094
+      - port: 8083
+        target:
+          kind: cdc_connector
+          name: mainframe-to-gg
+          service: kafka_connect
+          service_port: 8083
+      - port: 10800
+        target:
+          kind: cluster
+          name: mainframe-payments-gg8
+          service: thin_client
+          service_port: 10800
+      - port: 8080
+        target:
+          kind: cluster
+          name: mainframe-payments-gg8
+          service: rest
+          service_port: 8080
+      - port: 9090
+        target:
+          kind: monitor
+          name: pg-gke
+          service: prometheus
+          service_port: 9090
+    timeouts:
+      deployment: 300
 
 assemblies:
   mainframe-payments:
