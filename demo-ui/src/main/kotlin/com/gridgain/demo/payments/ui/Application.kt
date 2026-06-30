@@ -22,6 +22,7 @@ import com.gridgain.demo.payments.ui.services.BulkLoadService
 import com.gridgain.demo.payments.ui.services.ConnectorControlService
 import com.gridgain.demo.payments.ui.services.DemoResetService
 import com.gridgain.demo.payments.ui.services.GeneratorControlService
+import com.gridgain.demo.payments.ui.services.GeneratorPoolService
 import com.gridgain.demo.payments.ui.services.GridGainService
 import com.gridgain.demo.payments.ui.services.MainframeProxyService
 import com.gridgain.demo.payments.ui.services.MariaDbBulkLoadService
@@ -110,6 +111,7 @@ fun Application.configureRouting(config: UiConfig) {
     val gridGainService = GridGainService(config)
     val phaseService = PhaseService()
     val generatorService = GeneratorControlService(config)
+    val generatorPoolService = GeneratorPoolService(config)
     // Workload descriptor for the phase-6 dashboard's latency subtitle — read once from the
     // generator's ops.yaml at startup, stamped onto every emitted MetricsSnapshot.
     val rwRatio = WorkloadRatioService(config.opsFile, config.generatorScenario).readWriteRatio()
@@ -191,7 +193,7 @@ fun Application.configureRouting(config: UiConfig) {
             tailerRoutes(tailerService)
             metricsRoutes(generatorMetricsService)
             cpuRoutes(cpuService)
-            generatorRoutes(generatorService)
+            generatorRoutes(generatorService, generatorPoolService)
             bringOnlineRoutes(cdcSinkControlService, bulkLoadService, mariaSinkControlService, mariaBulkLoadService)
             demoRoutes(resetService)
             // Connector health for the UI's warning pill — surfaces any FAILED Connect task

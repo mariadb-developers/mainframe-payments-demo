@@ -26,6 +26,13 @@ data class UiConfig(
     val generatorDeploymentName: String,
     val prometheusUrl: String,
     val prometheusCpuQuery: String,
+    // Generator-pool warmup — UI status display + which data_generator to warm up.
+    // The actual resize is handled by the toolkit plugin (warmupDataGeneratorPool task);
+    // these fields exist only for the kubectl-based status counter and the Gradle
+    // -PdataGeneratorName argument.
+    val generatorPoolName: String,
+    val generatorPoolMaxNodes: Int,
+    val warmupDataGeneratorName: String,
 ) {
     companion object {
         fun fromEnvironment(): UiConfig {
@@ -101,6 +108,16 @@ data class UiConfig(
                 // PromQL for the GG CPU gauge. sys_CpuLoad is Ignite's per-node CPU gauge (0..1);
                 // avg() blends the GG nodes. Tunable without a rebuild if the metric/labels differ.
                 prometheusCpuQuery = env("PAYMENTS_PROMETHEUS_CPU_QUERY", "avg(sys_CpuLoad)"),
+                // Generator-pool warmup — GeneratorPoolService.warmup shells
+                // `./gradlew warmupDataGeneratorPool -PdataGeneratorName=<name>`,
+                // delegating the gcloud resize + cluster/region/project lookup to the toolkit
+                // plugin (which already owns the pool naming convention `wp-<name>`).
+                // The two remaining fields here support the UI's status-pill: kubectl
+                // label-selects nodes via generatorPoolName, and the "warm" threshold uses
+                // generatorPoolMaxNodes. warmupDataGeneratorName is the -P arg.
+                generatorPoolName = env("PAYMENTS_GENERATOR_POOL_NAME", "wp-payments-load"),
+                generatorPoolMaxNodes = env("PAYMENTS_GENERATOR_POOL_MAX_NODES", "6").toInt(),
+                warmupDataGeneratorName = env("PAYMENTS_WARMUP_DATA_GENERATOR", "payments-load"),
             )
         }
 

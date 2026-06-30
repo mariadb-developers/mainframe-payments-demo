@@ -34,9 +34,11 @@ LOG_DIR="${TMPDIR:-/tmp}/mainframe-payments-port-forward"
 WATCH_INTERVAL="${WATCH_INTERVAL:-5}"
 mkdir -p "$LOG_DIR"
 
-# namespace | target | localPort:remotePort[,localPort:remotePort,...] | description
+# namespace | target | localPort:remotePort [localPort:remotePort ...] | description
+# Port pairs are space-separated — kubectl expects each pair as its own argument
+# (comma-separated silently keeps only the first pair).
 FORWARDS=(
-  "payments-proxy|svc/payments-proxy|5432:5432,3306:3306,9094:9094,8083:8083,10800:10800,8080:8080,9090:9090|All demo backends via HAProxy (multi-port)"
+  "payments-proxy|svc/payments-proxy|5432:5432 3306:3306 9094:9094 8083:8083 10800:10800 8080:8080 9090:9090|All demo backends via HAProxy (multi-port)"
 )
 
 # kubectl prints one of these to its log when a tunnel breaks but keeps the
@@ -55,7 +57,8 @@ start_one() {
   local ns="$1" target="$2" ports="$3" desc="$4"
   local lp="${ports%%:*}" log; log="$(log_path "$ns" "${ports%%:*}")"
   : >"$log"
-  nohup kubectl -n "$ns" port-forward "$target" "$ports" >"$log" 2>&1 &
+  # shellcheck disable=SC2086 # intentional word-split on space-separated port pairs
+  nohup kubectl -n "$ns" port-forward "$target" $ports >"$log" 2>&1 &
   echo "  start  ${lp}  ${ns}/${target}  (pid $!) — ${desc}"
 }
 

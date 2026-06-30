@@ -495,8 +495,11 @@ data_generators:
     target_cluster: mainframe-payments-gg8
     k8s_namespace: mainframe-payments-gg8
     k8s_node_pool_template: generator-gke-pool
-    num_nodes: 6
-    min_nodes: 6
+    # Start small to avoid burning nodes when the cluster is idle (no demo running).
+    # The demo UI's "Warm up load pool" button pre-scales the pool up to max_nodes
+    # just before phase 6; afterwards the autoscaler scales back to min_nodes.
+    num_nodes: 1
+    min_nodes: 1
     max_nodes: 6
     scenario: mainframe-payments-load
     ops_file: generator/ops.yaml

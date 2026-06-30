@@ -9,6 +9,7 @@ import type {
   CuratedTransaction,
   GeneratorState,
   PhaseState,
+  PoolStatus,
   ProductSummary,
   ResetSummary,
   TransactionResult,
@@ -82,6 +83,11 @@ export const generatorApi = {
   // adding pods is the lever for saturating GG. The backend (re)launches the distributed run,
   // stopping any prior run first.
   setPods: (pods: number) => postJson<GeneratorState>('/api/generator/pods', { pods }),
+  // Generator GKE pool warmup. poolStatus() is the poll for the UI's status pill;
+  // warmupPool() POSTs an async gcloud resize so the call returns immediately and
+  // subsequent poolStatus() calls reflect the climbing node count.
+  poolStatus: () => getJson<PoolStatus>('/api/generator/pool/status'),
+  warmupPool: () => postJson<PoolStatus>('/api/generator/pool/warmup', {}),
 }
 
 export const demoApi = {

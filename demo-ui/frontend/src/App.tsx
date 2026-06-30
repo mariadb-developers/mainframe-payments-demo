@@ -6,6 +6,7 @@ import { ConnectorTailers, useLatestCorrelationId } from '@/components/Connector
 import type { AppliedState, Lookups } from '@/components/ConnectorTailers'
 import { GridGainPanel } from '@/components/GridGainPanel'
 import { LoadSlider } from '@/components/LoadSlider'
+import { PoolWarmupButton } from '@/components/PoolWarmupButton'
 import { MainframePanel } from '@/components/MainframePanel'
 import { MariaDbPanel } from '@/components/MariaDbPanel'
 import { PerfDashboard } from '@/components/PerfDashboard'
@@ -315,6 +316,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-6">
           <ConnectorHealthPill />
+          <PoolWarmupButton />
           <LoadSlider enabled={v.loadSlider} onRunningChange={onLoadRunningChange} resetSignal={loadResetSignal} />
           <PhaseControl phase={phase} onChange={setPhase} />
           <ResetButton onReset={onReset} />

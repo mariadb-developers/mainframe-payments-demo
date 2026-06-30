@@ -69,6 +69,17 @@ export interface GeneratorState {
   running: boolean
 }
 
+// Live state of the data-generator GKE node pool — what the "Warm up load pool"
+// button reads and writes. Mirrors com.gridgain.demo.payments.ui.model.PoolStatus.
+// `state` is "cold" (≤1 node, idle), "scaling" (resize in flight), or "warm"
+// (≥max nodes, ready for phase-6 load).
+export interface PoolStatus {
+  pool_name: string
+  current_nodes: number
+  max_nodes: number
+  state: 'cold' | 'scaling' | 'warm'
+}
+
 // Live throughput + GridGain execution latency from the data generator, streamed over
 // /api/metrics ~1s. Mirrors com.gridgain.demo.payments.ui.metrics.MetricsSnapshot (snake_case).
 export interface MetricsSnapshot {
