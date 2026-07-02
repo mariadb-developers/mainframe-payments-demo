@@ -1,0 +1,24 @@
+# SOPS creation rules for the mainframe-payments demo repo.
+#
+# When you run `sops secrets/*.sops.yaml`, SOPS reads this file to decide
+# which recipient key(s) to encrypt for. Each operator adds their own
+# age public key here via a one-line PR — the corresponding age PRIVATE
+# key lives on their laptop (`~/.config/sops/age/keys.txt`, mode 0600)
+# and is never committed.
+#
+# To generate your key:
+#   age-keygen -o ~/.config/sops/age/keys.txt
+# Its public key prints to stderr — add it to the `age:` list below.
+# Then export `SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt` in your shell.
+#
+# To rotate keys (add a new teammate, drop a departing one), edit this file
+# then run `sops updatekeys secrets/demo-secrets.sops.yaml` to re-encrypt
+# the file's data key for the new recipient list. Rotating the underlying
+# secret VALUES is a separate step (open each *.sops.yaml, edit, save).
+
+creation_rules:
+  - path_regex: secrets/.*\.sops\.yaml$
+    # Comma-separated list of age public keys. Replace the placeholder
+    # with real recipients before first use.
+    age: >-
+      age1REPLACE_WITH_YOUR_AGE_PUBLIC_KEY_ONE_LINE_NO_SPACES

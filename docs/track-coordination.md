@@ -894,3 +894,142 @@ This file is the **single source of truth** for cross-track communication. Both 
   7. `./gradlew teardownAssembly -PassemblyName=mainframe-payments` — proxy comes down with everything else.
 
   Post **INTEGRATED** once the live cluster has done the above.
+
+- **2026-06-30 · READY (B→A) · GKE infrastructure teardown sweeps orphan PVC-backing PDs** —
+  Plugin branch `feat/teardown-infra-sweep-orphan-disks`. New
+  `InfrastructurePlugin.orphanDiskCleanupCommands(spec, ctx)` (default `emptyList()`),
+  overridden on `GKEInfrastructurePlugin` to shell out (`sh -c`) to gcloud and reclaim every
+  unattached `pvc-*` disk labelled `goog-k8s-cluster-name=<infra>` *before* the cluster
+  delete runs. `InfrastructureDestroyer.destroy()` invokes the new stage between
+  "Infrastructure State" and "Infrastructure Deletion"; failures are logged but **non-fatal**
+  so a sweep hiccup never blocks the actual cluster delete. New `OrphanDisksSwept` /
+  `OrphanDiskSweepFailed` `ClusterEffect` cases + `GkeOrphanDiskSweepResolver` carry the
+  count back for the lifecycle log. EKS inherits the empty default — no AWS-side behaviour
+  changes.
+
+  **Why this matters for the demo.** Interrupted/aborted earlier sessions (`Ctrl-C` between
+  per-element teardowns, `gcloud container clusters delete` bypassing the toolkit, etc.) had
+  been leaving behind unattached `pvc-*` PDs labelled with the cluster name; today's clean
+  `teardownAssembly` run on `mainframe-payments` reclaimed its own 6 PVs correctly but found
+  18 stragglers from June 16 + June 29 sessions. We swept those manually
+  (`gcloud compute disks list --filter='labels.goog-k8s-cluster-name=mainframe-payments-gke
+   AND -users:*' | xargs delete`) — this change makes the next clean teardown do that
+  hygiene step automatically, even if the earlier-aborted session never reached the
+  infrastructure-delete stage.
+
+  **No `demo-config.yaml` changes.** No schema bump. Additive interface change with a
+  default, so all non-GKE platforms keep their existing behaviour.
+
+  **Verification path on the demo side (once the plugin branch merges and `includeBuild`
+   picks it up):**
+  1. Redeploy `mainframe-payments` (any way: full or partial).
+  2. `gcloud compute disks list --filter='labels.goog-k8s-cluster-name=mainframe-payments-gke'`
+     while the demo is live — note the active PD set.
+  3. `./gradlew teardownAssembly -PassemblyName=mainframe-payments`. The destroyer logs a
+     "🧹 Sweeping any unattached PVC-backing disks…" line just before the cluster-delete
+     stage.
+  4. After teardown: `gcloud compute disks list --filter='labels.goog-k8s-cluster-name=mainframe-payments-gke'`
+     should be empty (zero stragglers).
+
+  **Open items.** Two minor cosmetic log-message issues observed during today's teardown
+  test, *not* fixed in this change — filed separately so the sweep can ship clean:
+  (a) `cluster_monitoring` teardown emits "K8s resources for monitor 'pg-gke' removed"
+  when the real subject is the otel-collector connector (the monitor proper is torn down
+  one step later, emitting the same line a second time — looks like a duplicate delete).
+  (b) `cluster_monitoring` teardown unnecessarily auto-derives the otel-collector image
+  even on the delete path (image resolution belongs on the deploy path only).
+
+  Post **INTEGRATED** once a teardown cycle confirms the live sweep behaves.
+
+- **2026-07-01 · READY (B→A) · `secrets` element type, SOPS-backed materializer** —
+  Plugin branch `feat/secrets-element`. New first-class `secrets` element type;
+  see design doc `docs/2026-06-30-secrets-element-options.md` for the option
+  survey that led to this shape. Additive schema bump **16 → 17** with a snapshot
+  fixture (v16 configs migrate cleanly — the migration adds `secrets: {}` if
+  absent).
+
+  **What it does.** The assembly walker's new `kind: secrets` step iterates every
+  non-disabled entry under the top-level `secrets:` block, decrypts the referenced
+  SOPS file to memory, extracts the sub-tree at `source.path`, base64-encodes the
+  values, and `kubectl apply`s a labelled k8s Secret per entry (label
+  `gridgain-demo/managed-secret: "true"`). Teardown deletes every Secret with
+  that label across all namespaces — no per-Secret state in `deployment.yaml`,
+  so a mid-materialize crash still cleans up on the next teardown.
+
+  **Namespace bootstrap.** `DeploySecretsAction` idempotently creates each
+  referenced namespace before applying its Secret. Mirrors the bash-script
+  bootstrap this element replaces — lets `kind: secrets` sit early in the
+  assembly (right after `infrastructure`) so downstream elements (`database`,
+  `cdc_connector`) find their secrets already in place when their pods reference
+  them via `secretKeyRef`.
+
+  **SOPS shell-out bypasses the plugin's CLI recording framework.** SopsDecrypter
+  uses `ProcessBuilder` directly so decrypted plaintext never lands in the
+  `.runtime` YAML log (which every other CliInvocation writes to for
+  observability). Also: `sops` binary not on PATH → clear MisconfigurationException
+  with `brew install sops age` remediation, not a raw IOException.
+
+  **Source discriminator is extensible.** `source.kind` is a sealed enum; v1
+  supports `sops` only. Future additive cases: `env`, `literal`,
+  `gcp_secret_manager`, `aws_secrets_manager`, `vault`, `external_ref`
+  (ExternalSecrets Operator). No schema break to add them later.
+
+  **Demo-side changes (already applied on this branch's local worktree, but
+   the changes belong on the demo `main` and are described here for the
+   coordinator to pick up):**
+  1. `demo-config.yaml` bumped to `schema_version: 17`; added `secrets:` block
+     with five entries (postgres/mariadb/three CDC-pipeline creds) all pointing
+     at `secrets/demo-secrets.sops.yaml`.
+  2. Assembly `mainframe-payments` gets `{ kind: secrets, name: payments-secrets }`
+     inserted at position 2 (after `infrastructure`, before all elements that
+     reference the Secrets).
+  3. New `.sops.yaml` at repo root (age-recipient list; placeholder public key —
+     replace before first use).
+  4. New `secrets/demo-secrets.sops.yaml.example` — plaintext template with the
+     five secret sub-trees and the required key names. Operators copy → edit →
+     `sops --encrypt --in-place` → commit as `secrets/demo-secrets.sops.yaml`.
+  5. `.gitignore` blocks unencrypted `secrets/*.yaml`, allowlists
+     `secrets/*.sops.yaml` and `secrets/*.sops.yaml.example`.
+
+  **One-time operator setup (per laptop):**
+  ```
+  brew install sops age
+  age-keygen -o ~/.config/sops/age/keys.txt
+  # Public key prints to stderr; add it to .sops.yaml
+  echo 'export SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt' >> ~/.zshrc
+  source ~/.zshrc
+  ```
+
+  **No `create-demo-secrets.sh` runs any more.** Once this branch is merged and
+  a `secrets/demo-secrets.sops.yaml` exists with real values, `deployAssembly
+  -PassemblyName=mainframe-payments` is one-command end-to-end — no
+  interstitial script step.
+
+  **Verification path on the demo side:**
+  1. `./gradlew validateDemoConfiguration` — passes against the updated config
+     (already verified locally).
+  2. Complete the `.sops.yaml` age recipient list and encrypt
+     `secrets/demo-secrets.sops.yaml` with real values.
+  3. `./gradlew deployAssembly -PassemblyName=mainframe-payments` — expect a
+     "🔐 Preparing to materialize configured Secrets .." log line right after
+     infrastructure comes up; five Secrets appear across three namespaces.
+  4. `kubectl get secret -A -l gridgain-demo/managed-secret=true` — returns the
+     five Secrets (postgres/mariadb-analytics/three cdc-pipeline).
+  5. Downstream elements (databases, CDC connectors) reference the Secrets via
+     `secretKeyRef` as before — no changes to those elements.
+  6. `./gradlew teardownAssembly -PassemblyName=mainframe-payments` — Secrets
+     get swept by label as the assembly walker unwinds; leaves the cluster
+     clean.
+
+  **Follow-ups worth noting (not blocking):**
+  - Retire `scripts/create-demo-secrets.sh` once the SOPS path is proven in
+     a full deploy cycle. Keep it for a session or two as a fallback.
+  - Redact `sops` invocation stdout in the CLI recording framework so
+     switching secret sources back to CliInvocation (from ProcessBuilder)
+     would be safe.
+  - Extend `SecretSourceSpec` with `env` and `gcp_secret_manager` cases when
+     production-shaped demos need them.
+
+  Post **INTEGRATED** once the live cluster round-trips a full deploy +
+  teardown cycle with the SOPS-encrypted file in place.
+

@@ -24,6 +24,13 @@ environment-config.yaml
 **/controlcenter-license.json
 **/gridgain8-license.xml
 
+# Secrets — only *.sops.yaml (SOPS-encrypted) may be committed.
+# Plaintext YAML under secrets/ is always ignored so an accidental
+# `cp demo-secrets.sops.yaml.example demo-secrets.yaml` never lands in git.
+secrets/*.yaml
+!secrets/*.sops.yaml
+!secrets/*.sops.yaml.example
+
 
 
 # IDE

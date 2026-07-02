@@ -1,4 +1,4 @@
-schema_version: 16
+schema_version: 17
 demo:
   name: mainframe-payments
   description: |
@@ -573,12 +573,46 @@ proxies:
     timeouts:
       deployment: 300
 
+secrets:
+  postgres-mainframe-proxy-auth:
+    k8s_namespace: mainframe-proxy
+    source:
+      kind: sops
+      file: secrets/demo-secrets.sops.yaml
+      path: postgres-mainframe-proxy-auth
+  mariadb-analytics-auth:
+    k8s_namespace: mariadb-analytics
+    source:
+      kind: sops
+      file: secrets/demo-secrets.sops.yaml
+      path: mariadb-analytics-auth
+  mainframe-to-gg-debezium-auth:
+    k8s_namespace: cdc-pipeline
+    source:
+      kind: sops
+      file: secrets/demo-secrets.sops.yaml
+      path: mainframe-to-gg-debezium-auth
+  gg-to-postgres-jdbc-auth:
+    k8s_namespace: cdc-pipeline
+    source:
+      kind: sops
+      file: secrets/demo-secrets.sops.yaml
+      path: gg-to-postgres-jdbc-auth
+  gg-to-mariadb-jdbc-auth:
+    k8s_namespace: cdc-pipeline
+    source:
+      kind: sops
+      file: secrets/demo-secrets.sops.yaml
+      path: gg-to-mariadb-jdbc-auth
+
 assemblies:
   mainframe-payments:
     description: Full mainframe-payments demo topology — GG8 + Postgres mainframe-proxy + MariaDB + CDC + generator
     elements:
       - kind: infrastructure
         name: mainframe-payments-gke
+      - kind: secrets
+        name: payments-secrets
       - kind: monitor
         name: pg-gke
       - kind: cluster
